@@ -11,6 +11,9 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
+
+	"github.com/erewhon/pitf/internal/config"
 )
 
 // ExitError carries an exit status from an external subcommand (or from a
@@ -24,13 +27,29 @@ func (e *ExitError) Error() string { return fmt.Sprintf("exit status %d", e.Code
 // Main is the whole program: it decides between a built-in command and an
 // external one, then runs it. version is the build stamp shown by --version.
 func Main(ctx context.Context, version string, args []string) error {
-	root := NewRoot(version)
+	gf := &globalFlags{}
+	root := NewRoot(version, gf)
 
-	// git-style dispatch: `pitf foo …` with no built-in `foo` runs `pitf-foo …`.
-	// Decided here, before cobra sees the args, so foo's own flags are never
-	// parsed by the root command. Built-ins always win over externals.
-	if name, rest, ok := externalCandidate(root, args); ok {
+	// git-style dispatch: `pitf [global flags] foo …` with no built-in `foo`
+	// runs `pitf-foo …`. Decided here, before cobra sees the args, so foo's
+	// own flags are never parsed by the root command. Built-ins always win
+	// over externals. Global flags before the name are honoured (they feed
+	// the config the external inherits); anything after it is foo's.
+	pre := pflag.NewFlagSet("pitf", pflag.ContinueOnError)
+	pre.ParseErrorsAllowlist.UnknownFlags = true
+	pre.SetInterspersed(false)
+	pre.SetOutput(io.Discard)
+	addGlobalFlags(pre, gf)
+	_ = pre.Parse(args)
+	if name, rest, ok := externalCandidate(root, pre.Args()); ok {
 		if path, found := lookupExternal(name, os.Getenv("PATH")); found {
+			r, err := config.Resolve(gf.options())
+			if err != nil {
+				return err
+			}
+			if err := r.Apply(); err != nil {
+				return err
+			}
 			return runExternal(ctx, path, rest)
 		}
 	}
@@ -39,8 +58,16 @@ func Main(ctx context.Context, version string, args []string) error {
 	return root.ExecuteContext(ctx)
 }
 
+func addGlobalFlags(fs *pflag.FlagSet, gf *globalFlags) {
+	fs.StringVar(&gf.profile, "profile", "", "config profile to use (overrides PITF_PROFILE and default_profile)")
+	fs.StringVar(&gf.routerURL, "router-url", "", "router base URL (overrides PITF_ROUTER_URL and the profile)")
+}
+
 // NewRoot builds the cobra root with every built-in subcommand attached.
-func NewRoot(version string) *cobra.Command {
+func NewRoot(version string, gf *globalFlags) *cobra.Command {
+	if gf == nil {
+		gf = &globalFlags{}
+	}
 	root := &cobra.Command{
 		Use:     "pitf",
 		Short:   "One command over the smithy LLM tools",
@@ -62,7 +89,8 @@ func NewRoot(version string) *cobra.Command {
 	}
 	root.SetVersionTemplate("pitf {{.Version}}\n")
 
-	root.AddCommand(newCompletionCmd(root))
+	addGlobalFlags(root.PersistentFlags(), gf)
+	root.AddCommand(newCompletionCmd(root), newConfigCmd(gf))
 
 	// Append discovered externals to `pitf help` / `pitf --help`.
 	defaultHelp := root.HelpFunc()
@@ -85,7 +113,7 @@ func externalCandidate(root *cobra.Command, args []string) (name string, rest []
 	if name == "" || strings.HasPrefix(name, "-") {
 		return "", nil, false
 	}
-	if name == "help" || name == "completion" {
+	if name == "help" {
 		return "", nil, false
 	}
 	for _, c := range root.Commands() {
@@ -157,3 +185,5 @@ func sortedKeys(m map[string]struct{}) []string {
 	sort.Strings(out)
 	return out
 }
+
+func sortStrings(s []string) { sort.Strings(s) }

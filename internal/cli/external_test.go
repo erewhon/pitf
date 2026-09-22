@@ -77,7 +77,7 @@ func TestListExternalsSortedAndDeduped(t *testing.T) {
 }
 
 func TestExternalCandidateSkipsBuiltinsAndFlags(t *testing.T) {
-	root := NewRoot("test")
+	root := NewRoot("test", nil)
 	cases := []struct {
 		args []string
 		ok   bool
@@ -87,6 +87,7 @@ func TestExternalCandidateSkipsBuiltinsAndFlags(t *testing.T) {
 		{[]string{"--version"}, false, ""},
 		{[]string{"help"}, false, ""},
 		{[]string{"completion", "zsh"}, false, ""},
+		{[]string{"config", "show"}, false, ""},
 		{[]string{"hello", "--flag", "x"}, true, "hello"},
 	}
 	for _, c := range cases {

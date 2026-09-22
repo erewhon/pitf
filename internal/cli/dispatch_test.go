@@ -6,7 +6,14 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
+)
+
+var (
+	buildOnce sync.Once
+	builtBin  string
+	buildErr  error
 )
 
 // buildPitf compiles the real binary once per test run so dispatch (which
@@ -16,12 +23,23 @@ func buildPitf(t *testing.T) string {
 	if runtime.GOOS == "windows" {
 		t.Skip("exec semantics")
 	}
-	bin := filepath.Join(t.TempDir(), "pitf")
-	cmd := exec.Command("go", "build", "-o", bin, "../../cmd/pitf")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("go build: %v\n%s", err, out)
+	buildOnce.Do(func() {
+		dir, err := os.MkdirTemp("", "pitf-test-bin")
+		if err != nil {
+			buildErr = err
+			return
+		}
+		builtBin = filepath.Join(dir, "pitf")
+		cmd := exec.Command("go", "build", "-o", builtBin, "../../cmd/pitf")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			buildErr = err
+			t.Logf("go build: %s", out)
+		}
+	})
+	if buildErr != nil {
+		t.Fatalf("go build: %v", buildErr)
 	}
-	return bin
+	return builtBin
 }
 
 func run(t *testing.T, bin, pathEnv string, args ...string) (string, int) {
@@ -89,5 +107,76 @@ func TestHelpAndVersion(t *testing.T) {
 	out, code = run(t, bin, dir, "--version")
 	if code != 0 || !strings.HasPrefix(out, "pitf ") {
 		t.Fatalf("--version (code %d): %q", code, out)
+	}
+}
+
+func TestDispatchAppliesConfigAndProfileFlag(t *testing.T) {
+	bin := buildPitf(t)
+	dir := t.TempDir()
+	writeExec(t, dir, "pitf-show", "#!/bin/sh\necho \"url=$PITF_ROUTER_URL key=$ROUTER_API_KEY prof=$PITF_PROFILE extra=$EXTRA args=$*\"\n")
+	cfgDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(cfgDir, "pitf"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := `default_profile = "home"
+[router]
+url = "https://home.example"
+api_key_cmd = "echo home-key"
+[profiles.home]
+[profiles.work.router]
+url = "https://work.example"
+api_key = "work-key"
+[profiles.work.env]
+EXTRA = "w"
+`
+	if err := os.WriteFile(filepath.Join(cfgDir, "pitf", "config.toml"), []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pathEnv := dir + string(os.PathListSeparator) + os.Getenv("PATH")
+	runCfg := func(args ...string) string {
+		cmd := exec.Command(bin, args...)
+		cmd.Env = append(os.Environ(), "PATH="+pathEnv, "XDG_CONFIG_HOME="+cfgDir, "ROUTER_API_KEY=", "PITF_PROFILE=")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("%v: %v\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	if got := runCfg("show", "a"); got != "url=https://home.example key=home-key prof=home extra= args=a" {
+		t.Fatalf("default profile: %q", got)
+	}
+	// global flag before the external name selects the profile; the
+	// external's own --profile-looking flag after the name is left alone.
+	if got := runCfg("--profile", "work", "show", "--profile", "x"); got != "url=https://work.example key=work-key prof=work extra=w args=--profile x" {
+		t.Fatalf("explicit profile: %q", got)
+	}
+	if got := runCfg("--router-url", "https://flag.example", "show"); !strings.HasPrefix(got, "url=https://flag.example ") {
+		t.Fatalf("--router-url: %q", got)
+	}
+}
+
+func TestConfigShowRedactsAndPathHonoursXDG(t *testing.T) {
+	bin := buildPitf(t)
+	cfgDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(cfgDir, "pitf"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "pitf", "config.toml"), []byte("[router]\nurl=\"https://h\"\napi_key=\"sekrit\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(bin, "config", "show")
+	cmd.Env = append(os.Environ(), "XDG_CONFIG_HOME="+cfgDir, "ROUTER_API_KEY=", "PITF_PROFILE=")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("config show: %v\n%s", err, out)
+	}
+	if strings.Contains(string(out), "sekrit") || !strings.Contains(string(out), "router.key:  set") {
+		t.Fatalf("show must redact: %s", out)
+	}
+	cmd = exec.Command(bin, "config", "path")
+	cmd.Env = append(os.Environ(), "XDG_CONFIG_HOME="+cfgDir)
+	out, _ = cmd.CombinedOutput()
+	if strings.TrimSpace(string(out)) != filepath.Join(cfgDir, "pitf", "config.toml") {
+		t.Fatalf("config path: %s", out)
 	}
 }
