@@ -150,6 +150,10 @@ Targets come from `[tools]` in the config (`monitor_url`, `tokens_url`,
 `dashboard_url`; profile-overridable; `PITF_*_URL` env wins). monitor and
 tokens default to their loopback ports; the dashboard has no default. An
 unconfigured or unreachable target is reported on its line, never fatal.
+The same section is exported to every subcommand as `AGENT_MONITOR_TOKENS_URL`
+and `TOKENATOR_MONITOR_URL` (plus `PITF_MONITOR_URL`, `PITF_TOKENS_URL`,
+`PITF_DASHBOARD_URL`), so `pitf monitor` and `pitf tokens serve` cross-link
+with no flags.
 The router's request log has no session identity, so there is no session
 jump into the router; tokenator groups usage by the harness's model name,
 so there is no alias jump into tokenator. In the UIs themselves,

@@ -174,7 +174,13 @@ func TestEnvironmentMergesTablesAndRespectsAmbient(t *testing.T) {
 		Getenv:  envOf(map[string]string{"OVERRIDDEN": "by-hand"}),
 	})
 	env, _ = r.Environment()
-	want := []string{"OVERRIDDEN=from-work", "PITF_PROFILE=work", "PITF_ROUTER_API_KEY=work-literal", "PITF_ROUTER_URL=https://work.example", "ROUTER_API_KEY=work-literal", "SHARED=from-defaults"}
+	want := []string{
+		"AGENT_MONITOR_TOKENS_URL=http://work-box:8990", "OVERRIDDEN=from-work",
+		"PITF_DASHBOARD_URL=https://home.example/dashboard", "PITF_MONITOR_URL=" + DefaultMonitorURL,
+		"PITF_PROFILE=work", "PITF_ROUTER_API_KEY=work-literal", "PITF_ROUTER_URL=https://work.example",
+		"PITF_TOKENS_URL=http://work-box:8990", "ROUTER_API_KEY=work-literal", "SHARED=from-defaults",
+		"TOKENATOR_MONITOR_URL=" + DefaultMonitorURL,
+	}
 	if strings.Join(env, " ") != strings.Join(want, " ") {
 		t.Fatalf("explicit profile env =\n %v\nwant\n %v", env, want)
 	}
@@ -206,5 +212,13 @@ func TestToolsMergeWithDefaults(t *testing.T) {
 	r = mustResolve(t, sample, Options{Profile: "work", Getenv: envOf(map[string]string{"PITF_MONITOR_URL": "http://env:1"})})
 	if r.Tools.MonitorURL != "http://env:1" || r.Tools.TokensURL != "http://work-box:8990" || r.Tools.DashboardURL != "https://home.example/dashboard" {
 		t.Fatalf("work tools = %+v", r.Tools)
+	}
+}
+
+func TestToolEnvRespectsHandExports(t *testing.T) {
+	r := mustResolve(t, sample, Options{Getenv: envOf(map[string]string{"AGENT_MONITOR_TOKENS_URL": "http://mine:1", "ROUTER_API_KEY": "k"})})
+	env, _ := r.Environment()
+	if contains(env, "AGENT_MONITOR_TOKENS_URL="+DefaultTokensURL) || !contains(env, "TOKENATOR_MONITOR_URL="+DefaultMonitorURL) {
+		t.Fatalf("implicit profile must keep the hand export and still add the other: %v", env)
 	}
 }

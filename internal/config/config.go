@@ -113,6 +113,15 @@ const (
 	// EnvToolAPIKey is what the llm-router Python tools (qualeval, bench, …)
 	// read today; pitf sets it so they need no change.
 	EnvToolAPIKey = "ROUTER_API_KEY"
+	// The cross-link variables the mounted tools read, fed from [tools] so
+	// `pitf monitor` and `pitf tokens serve` link to each other with no
+	// flags: agent-monitor's board links to tokenator, tokenator's session
+	// pages link back to the board.
+	EnvMonitorTokensURL = "AGENT_MONITOR_TOKENS_URL"
+	EnvTokenatorMonitor = "TOKENATOR_MONITOR_URL"
+	EnvPitfMonitorURL   = "PITF_MONITOR_URL"
+	EnvPitfTokensURL    = "PITF_TOKENS_URL"
+	EnvPitfDashboardURL = "PITF_DASHBOARD_URL"
 )
 
 // DefaultPath is $XDG_CONFIG_HOME/pitf/config.toml, falling back to
@@ -304,6 +313,21 @@ func (r *Resolved) Environment() ([]string, error) {
 		}
 		set[EnvAPIKey] = key
 		set[EnvToolAPIKey] = key
+	}
+	// Tool cross-links and the resolved tool URLs, under the same
+	// no-clobber rule as the user tables.
+	tools := map[string]string{
+		EnvMonitorTokensURL: r.Tools.TokensURL,
+		EnvTokenatorMonitor: r.Tools.MonitorURL,
+		EnvPitfMonitorURL:   r.Tools.MonitorURL,
+		EnvPitfTokensURL:    r.Tools.TokensURL,
+		EnvPitfDashboardURL: r.Tools.DashboardURL,
+	}
+	for k, v := range tools {
+		if v == "" || (!r.ProfileExplicit && r.getenv(k) != "") {
+			continue
+		}
+		set[k] = v
 	}
 	for k, v := range r.Env {
 		// User tables never clobber something the operator already
