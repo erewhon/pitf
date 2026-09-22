@@ -32,9 +32,20 @@ type Router struct {
 	APIKeyCmd string `toml:"api_key_cmd"` // shell command whose stdout is the key
 }
 
+// Tools is where each tool's web UI lives, for cross-tool jumps
+// (`pitf session`, `pitf model`). Defaults are the tools' own loopback
+// listeners; the dashboard has no default because it is normally reached
+// through a front proxy.
+type Tools struct {
+	MonitorURL   string `toml:"monitor_url"`
+	TokensURL    string `toml:"tokens_url"`
+	DashboardURL string `toml:"dashboard_url"`
+}
+
 // Profile overrides the top-level defaults field by field.
 type Profile struct {
 	Router Router            `toml:"router"`
+	Tools  Tools             `toml:"tools"`
 	Env    map[string]string `toml:"env"`
 }
 
@@ -42,9 +53,16 @@ type Profile struct {
 type File struct {
 	DefaultProfile string             `toml:"default_profile"`
 	Router         Router             `toml:"router"`
+	Tools          Tools              `toml:"tools"`
 	Env            map[string]string  `toml:"env"`
 	Profiles       map[string]Profile `toml:"profiles"`
 }
+
+// Built-in tool defaults.
+const (
+	DefaultMonitorURL = "http://127.0.0.1:8070"
+	DefaultTokensURL  = "http://127.0.0.1:8990"
+)
 
 // Options are the caller-supplied inputs to Resolve: the explicit flags and
 // a Getenv hook (tests inject one; nil means os.Getenv).
@@ -74,6 +92,10 @@ type Resolved struct {
 	keyCache   string
 	keyDone    bool
 	run        func(string) (string, error)
+
+	// Tools is the merged [tools] + [profiles.X.tools] (profile wins per
+	// field), with built-in defaults for monitor and tokens.
+	Tools Tools
 
 	// Env is the merged [env] + [profiles.X.env] tables (profile wins).
 	Env map[string]string
@@ -209,7 +231,22 @@ func resolve(f File, path string, found bool, opts Options, getenv func(string) 
 		r.KeySource = "none"
 	}
 
-	// 4. Extra env: defaults, then profile on top.
+	// 4. Tool UIs: built-in default < [tools] < profile < PITF_*_URL env.
+	pick := func(env, prof, top, def string) string {
+		for _, v := range []string{getenv(env), prof, top, def} {
+			if v != "" {
+				return v
+			}
+		}
+		return ""
+	}
+	r.Tools = Tools{
+		MonitorURL:   pick("PITF_MONITOR_URL", prof.Tools.MonitorURL, f.Tools.MonitorURL, DefaultMonitorURL),
+		TokensURL:    pick("PITF_TOKENS_URL", prof.Tools.TokensURL, f.Tools.TokensURL, DefaultTokensURL),
+		DashboardURL: pick("PITF_DASHBOARD_URL", prof.Tools.DashboardURL, f.Tools.DashboardURL, ""),
+	}
+
+	// 5. Extra env: defaults, then profile on top.
 	r.Env = map[string]string{}
 	for k, v := range f.Env {
 		r.Env[k] = v
@@ -322,6 +359,14 @@ default_profile = "home"
 [router]
 url = "https://llm.bcc.sh"
 api_key_cmd = "ho secret get llm-router/api-key"
+
+# Where the tools' web UIs live, for pitf session / pitf model jumps.
+# monitor/tokens default to the tools' loopback ports; the dashboard has no
+# default (it usually sits behind a front proxy).
+[tools]
+# monitor_url = "http://127.0.0.1:8070"
+# tokens_url = "http://127.0.0.1:8990"
+# dashboard_url = "https://llm.example/dashboard"
 
 # Extra environment every subcommand should see (profile tables override).
 [env]

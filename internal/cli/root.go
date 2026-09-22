@@ -100,7 +100,7 @@ func NewRoot(version string, gf *globalFlags) *cobra.Command {
 	root.SetVersionTemplate("pitf {{.Version}}\n")
 
 	addGlobalFlags(root.PersistentFlags(), gf)
-	root.AddCommand(newCompletionCmd(root), newConfigCmd(gf), newBenchCmd(gf))
+	root.AddCommand(newCompletionCmd(root), newConfigCmd(gf), newBenchCmd(gf), newSessionCmd(gf), newModelCmd(gf))
 	root.AddCommand(mountCommands()...)
 
 	// Append discovered externals to `pitf help` / `pitf --help`.

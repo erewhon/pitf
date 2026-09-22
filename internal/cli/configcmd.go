@@ -125,6 +125,7 @@ func writeShow(cmd *cobra.Command, r *config.Resolved) error {
 	default:
 		fmt.Fprintf(w, "router.key:  (unset)\n")
 	}
+	fmt.Fprintf(w, "tools:       monitor %s · tokens %s · dashboard %s\n", orUnset(r.Tools.MonitorURL), orUnset(r.Tools.TokensURL), orUnset(r.Tools.DashboardURL))
 	if len(r.Env) > 0 {
 		keys := make([]string, 0, len(r.Env))
 		for k := range r.Env {
@@ -137,6 +138,13 @@ func writeShow(cmd *cobra.Command, r *config.Resolved) error {
 		}
 	}
 	return nil
+}
+
+func orUnset(s string) string {
+	if s == "" {
+		return "(unset)"
+	}
+	return s
 }
 
 func shellQuote(s string) string {

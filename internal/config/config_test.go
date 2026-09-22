@@ -26,6 +26,12 @@ api_key = "work-literal"
 
 [profiles.work.env]
 OVERRIDDEN = "from-work"
+
+[tools]
+dashboard_url = "https://home.example/dashboard"
+
+[profiles.work.tools]
+tokens_url = "http://work-box:8990"
 `
 
 func writeConfig(t *testing.T, body string) string {
@@ -190,4 +196,15 @@ func contains(list []string, s string) bool {
 		}
 	}
 	return false
+}
+
+func TestToolsMergeWithDefaults(t *testing.T) {
+	r := mustResolve(t, sample, Options{})
+	if r.Tools.MonitorURL != DefaultMonitorURL || r.Tools.TokensURL != DefaultTokensURL || r.Tools.DashboardURL != "https://home.example/dashboard" {
+		t.Fatalf("home tools = %+v", r.Tools)
+	}
+	r = mustResolve(t, sample, Options{Profile: "work", Getenv: envOf(map[string]string{"PITF_MONITOR_URL": "http://env:1"})})
+	if r.Tools.MonitorURL != "http://env:1" || r.Tools.TokensURL != "http://work-box:8990" || r.Tools.DashboardURL != "https://home.example/dashboard" {
+		t.Fatalf("work tools = %+v", r.Tools)
+	}
 }

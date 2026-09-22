@@ -128,6 +128,34 @@ the matrix's llama-bench rows are not directly comparable. `--registry`
 fills HF Repo, Quant, Host, Engine and Context from models.yaml when you
 have it; otherwise those stay empty for the operator.
 
+## Jumping between tools
+
+Two keys are shared across the tools, and pitf builds the URLs for them:
+
+- **session id** (Claude Code's session UUID, prefixes accepted). tokenator
+  keys its sessions on it. agent-monitor learns it from the hooks Claude Code
+  runs (`agent-monitor hooks install` prints hooks that post `session_id`)
+  and reports it in `/api/agents`.
+- **model alias** (a router alias). The router dashboard's catalog tab
+  deep-links on it.
+
+```
+pitf session                 # agents agent-monitor knows, with session ids
+pitf session 0d3e4b2a        # tokenator profile + transcript, matching monitor agent
+pitf session 0d3e4b2a --open
+pitf model glm-fast          # dashboard catalog page + what /v1/models says
+```
+
+Targets come from `[tools]` in the config (`monitor_url`, `tokens_url`,
+`dashboard_url`; profile-overridable; `PITF_*_URL` env wins). monitor and
+tokens default to their loopback ports; the dashboard has no default. An
+unconfigured or unreachable target is reported on its line, never fatal.
+The router's request log has no session identity, so there is no session
+jump into the router; tokenator groups usage by the harness's model name,
+so there is no alias jump into tokenator. In the UIs themselves,
+`agent-monitor --tokens-url` and `tokenator serve --monitor-url` add the
+reciprocal links.
+
 ## Building
 
 ```
