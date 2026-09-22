@@ -3,12 +3,21 @@ package cli
 import (
 	"errors"
 	"flag"
+	"os"
 
 	amcli "github.com/erewhon/agent-monitor/cli"
 )
 
 func init() {
-	versionSetters = append(versionSetters, func(v string) { amcli.Version = v })
+	versionSetters = append(versionSetters, func(v string) {
+		amcli.Version = v
+		// agent-monitor re-invokes itself inside its outer tmux (the TUI
+		// pane, the placeholder pane, the status-bar stats); under pitf that
+		// must come back through this mount, not the pitf root.
+		if exe, err := os.Executable(); err == nil {
+			amcli.SelfCommand = []string{exe, "monitor"}
+		}
+	})
 	registerMount(&mount{
 		name:    "monitor",
 		short:   "agent-monitor: watch and drive tmux coding agents",
