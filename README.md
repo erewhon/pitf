@@ -30,7 +30,10 @@ Two ways a subcommand exists:
   externals it can see.
 
 The Python tools stay Python behind wrappers in `contrib/wrappers/` for as
-long as that is the right answer.
+long as that is the right answer. Each shim runs the tool's console script
+inside its uv project (`uv run --project`), from any directory; set
+`PITF_SMITHY_DIR` if the checkouts are not under `~/code/smithy`.
+`just install-wrappers` puts them on `PATH`.
 
 ## Intent: one operator, one config
 

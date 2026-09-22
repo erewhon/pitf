@@ -1,0 +1,12 @@
+#!/bin/sh
+# pitf-forge: `pitf forge ...` runs `forge` inside the forge uv project.
+# The Python tools stay Python; this shim just finds the checkout.
+# Override the smithy checkout with PITF_SMITHY_DIR (default ~/code/smithy).
+set -eu
+root="${PITF_SMITHY_DIR:-$HOME/code/smithy}"
+proj="$root/forge"
+if [ ! -f "$proj/pyproject.toml" ]; then
+  echo "pitf-forge: project not found at $proj (set PITF_SMITHY_DIR)" >&2
+  exit 127
+fi
+exec uv run -q --project "$proj" forge "$@"
