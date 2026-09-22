@@ -6,7 +6,7 @@ project, from whatever directory you are in:
 
 | wrapper      | runs               | project (under `$PITF_SMITHY_DIR`, default `~/code/smithy`) |
 |--------------|--------------------|-------------------------------------------------------------|
-| `pitf-bench` | `llm-router-bench` | `llm-router`                                                |
+| `pitf-bench-py` | `llm-router-bench` (legacy multi-target compare; `pitf bench` is the Go sweep) | `llm-router`                                                |
 | `pitf-qual`  | `llm-router-qual`  | `llm-router`                                                |
 | `pitf-forge` | `forge`            | `forge`                                                     |
 | `pitf-meta`  | `meta`             | `meta`                                                      |

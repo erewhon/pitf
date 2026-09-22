@@ -13,7 +13,8 @@ pitf monitor …      # agent-monitor        (compiled in)
 pitf tokens …       # tokenator            (compiled in)
 pitf router serve|node-agent|gpu-exporter|tool-proxy|say …
                     # llm-router-go cmds   (compiled in)
-pitf bench …        # llm-router-bench     (external: pitf-bench on PATH)
+pitf bench sweep …  # pp/tg throughput sweep (built in, Go)
+pitf bench-py …     # llm-router-bench     (external: legacy multi-target compare)
 pitf qual …         # llm-router-qual      (external: pitf-qual on PATH)
 pitf forge …        # forge                (external: pitf-forge on PATH)
 pitf meta …         # meta                 (external: pitf-meta on PATH)
@@ -85,6 +86,47 @@ llm-router Python tools read today), plus the `[env]` tables. Tools do not
 need to know pitf exists. The key command runs only when something needs a
 key and nothing already supplies one. See the Forge project **PITF** for
 the task tree.
+
+## Benchmarks
+
+`pitf bench sweep` measures prompt-processing and token-generation
+throughput for model aliases behind the configured router, using the
+streaming chat API. It runs three legs per model (pp512, pp2048, tg128 by
+default), several runs each, and reports the median. Output is a table on
+stdout and, with `--json`, one JSON object per row whose keys are exactly the
+Forge Model Performance Matrix columns (plus a `measure` object with every
+sample), so a file saved at work replays into the matrix from home.
+
+```
+pitf bench sweep --model qwen38-27b --model glm-fast
+pitf --profile work bench sweep --all --match 'qwen*' --json rows.jsonl
+pitf bench sweep --model ling3 --registry ~/code/smithy/llm-router/models.yaml
+pitf bench show rows.jsonl
+```
+
+How the numbers are taken, and what to trust:
+
+- **llama-server seats** report `timings` on the final chunk; pp and tg come
+  from those (prompt_n/prompt_ms, predicted_n/predicted_ms) and exclude the
+  network and the router hop. Rows say `(server timings)` per leg.
+- **Everything else** (vLLM, cloud) is measured at the client: pp is
+  prompt_tokens over time-to-first-token, tg is completion_tokens over the
+  window from first token to the end. Rows say `(client)`.
+- Every prompt starts with a random nonce so no prefix cache can shortcut
+  the prefill; the chat-template header llama-server caches anyway is
+  tolerated and excluded from the rate.
+- A seat behind a proxy that streams only after it has the whole answer
+  (the router's tool proxy does this) shows up as a "buffered stream" error
+  on client-measured legs, because those numbers would be meaningless.
+  Server timings are unaffected.
+- The generation leg asks for an essay and counts a run only if the model
+  reached at least three quarters of the cut-off, so a two-token "OK" never
+  becomes a decode figure.
+
+This is a streaming probe, not llama-bench; the Flags column says so, and
+the matrix's llama-bench rows are not directly comparable. `--registry`
+fills HF Repo, Quant, Host, Engine and Context from models.yaml when you
+have it; otherwise those stay empty for the operator.
 
 ## Building
 

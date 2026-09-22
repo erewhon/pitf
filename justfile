@@ -29,4 +29,4 @@ install-wrappers:
 
 # smoke-test the installed wrappers: each must answer `pitf <name> --help`
 check-wrappers:
-    for n in bench qual forge meta; do pitf "$n" --help >/dev/null || exit 1; echo "pitf $n ok"; done
+    for n in bench-py qual forge meta; do pitf "$n" --help >/dev/null || exit 1; echo "pitf $n ok"; done
