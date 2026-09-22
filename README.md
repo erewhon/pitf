@@ -9,9 +9,10 @@ The name ties to [pitf.dev](https://pitf.dev).
 ## What it does
 
 ```
-pitf monitor …      # agent-monitor        (compiled in, once mounted)
-pitf tokens …       # tokenator            (compiled in, once mounted)
-pitf router …       # llm-router-go cmds   (compiled in, once mounted)
+pitf monitor …      # agent-monitor        (compiled in)
+pitf tokens …       # tokenator            (compiled in)
+pitf router serve|node-agent|gpu-exporter|tool-proxy|say …
+                    # llm-router-go cmds   (compiled in)
 pitf bench …        # llm-router-bench     (external: pitf-bench on PATH)
 pitf qual …         # llm-router-qual      (external: pitf-qual on PATH)
 pitf forge …        # forge                (external: pitf-forge on PATH)
@@ -20,9 +21,15 @@ pitf meta …         # meta                 (external: pitf-meta on PATH)
 
 Two ways a subcommand exists:
 
-- **Built in.** Go tools are imported and mounted as cobra subcommands.
-  Each tool exposes a small public `cli` package with
-  `Run(ctx, args) error`; pitf calls that and nothing else.
+- **Built in.** Go tools are imported and mounted. Each tool exposes a
+  small public `cli` package with `Run(ctx, args) error`; pitf calls that
+  and nothing else. Everything after the mount's name is the tool's own
+  argv, parsed by the tool's own flags, so `pitf monitor --help` is
+  agent-monitor's help. Global flags go before the name. Help exits 0 under
+  pitf even for the router binaries, whose standalone convention is 2; every
+  other exit status and message is the tool's. Ctrl-C keeps each tool's
+  standalone meaning (agent-monitor cancels a context; tokenator's `serve`
+  and the router daemons handle signals themselves).
 - **External, git-style.** Any executable named `pitf-<name>` on `PATH`
   answers to `pitf <name>`. pitf `exec`s it with the remaining arguments,
   the environment, and the terminal, so its exit status is its own. Built-ins
@@ -89,8 +96,13 @@ just install    # ~/.local/bin/pitf
 
 The Go tools are sibling checkouts under `~/code/smithy`. A `go.work` there
 lists `pitf`, `agent-monitor`, `tokenator`, and `llm-router-go`, so mounts
-build against the local trees without changing any module path. A CI build
-outside that tree needs published tags or `replace` directives.
+build against the local trees without changing any module path. The
+`require` lines for those three modules carry a placeholder version: they
+resolve through the workspace, and `go mod tidy` would try to fetch them
+from the network, so do not run it (`go get` the third-party deps by name
+instead). A CI build outside that tree needs published tags or `replace`
+directives. Until the `pitf-cli-export` branches in the three repos are
+merged, they must be the checked-out branch for pitf to compile.
 
 ## Layout
 

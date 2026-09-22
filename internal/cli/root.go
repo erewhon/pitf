@@ -16,13 +16,20 @@ import (
 	"github.com/erewhon/pitf/internal/config"
 )
 
-// ExitError carries an exit status from an external subcommand (or from a
-// deliberate non-zero exit) up to main without printing anything further.
+// ExitError carries an exit status up to main. Msg, if set, is printed to
+// stderr verbatim (no "pitf:" prefix) so a mounted tool's error reads the
+// same as it does standalone; empty means the tool already reported.
 type ExitError struct {
 	Code int
+	Msg  string
 }
 
-func (e *ExitError) Error() string { return fmt.Sprintf("exit status %d", e.Code) }
+func (e *ExitError) Error() string {
+	if e.Msg != "" {
+		return e.Msg
+	}
+	return fmt.Sprintf("exit status %d", e.Code)
+}
 
 // Main is the whole program: it decides between a built-in command and an
 // external one, then runs it. version is the build stamp shown by --version.
@@ -41,6 +48,9 @@ func Main(ctx context.Context, version string, args []string) error {
 	pre.SetOutput(io.Discard)
 	addGlobalFlags(pre, gf)
 	_ = pre.Parse(args)
+	if m, rest, ok := findMount(pre.Args()); ok {
+		return runMount(ctx, m, version, gf, rest)
+	}
 	if name, rest, ok := externalCandidate(root, pre.Args()); ok {
 		if path, found := lookupExternal(name, os.Getenv("PATH")); found {
 			r, err := config.Resolve(gf.options())
@@ -91,6 +101,7 @@ func NewRoot(version string, gf *globalFlags) *cobra.Command {
 
 	addGlobalFlags(root.PersistentFlags(), gf)
 	root.AddCommand(newCompletionCmd(root), newConfigCmd(gf))
+	root.AddCommand(mountCommands()...)
 
 	// Append discovered externals to `pitf help` / `pitf --help`.
 	defaultHelp := root.HelpFunc()
