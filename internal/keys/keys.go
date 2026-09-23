@@ -5,15 +5,16 @@
 //
 // Two keys exist today:
 //
-//   - SessionID: Claude Code's session UUID. tokenator keys sessions on it
-//     (and accepts a prefix); agent-monitor learns it from the hooks Claude
-//     Code runs and reports it in /api/agents as session_id.
+//   - SessionID: a harness session id (Claude Code's session UUID,
+//     opencode's ses_… id). tokenator keys sessions on it (and accepts a
+//     prefix); agent-monitor learns it from the hooks Claude Code runs and
+//     reports it in /api/agents as session_id; the router logs the id the
+//     harness sends on every request (llm-router-go f00737c+), and its
+//     dashboard lists one session's requests (#requests?session=).
 //   - ModelAlias: a router model alias. The router dashboard's catalog tab
-//     deep-links on it; agent-monitor and tokenator only see whatever the
-//     harness called the model, so there is no alias join into them.
-//
-// The router's request log carries no session identity, so there is no
-// session link into the router.
+//     deep-links on it, and tokenator's /model/{name} page matches it
+//     against the alias the caller sent. agent-monitor only sees whatever
+//     the harness called the model, so there is no alias join into it.
 package keys
 
 import (
@@ -76,6 +77,24 @@ func (l Links) RouterCatalogModel(alias ModelAlias) string {
 		return ""
 	}
 	return base(l.DashboardURL) + "/v2#catalog?model=" + url.QueryEscape(string(alias))
+}
+
+// TokensModel is tokenator's per-model page: the sessions that used the
+// alias, and the router rows sent under it.
+func (l Links) TokensModel(alias ModelAlias) string {
+	if l.TokensURL == "" || alias == "" {
+		return ""
+	}
+	return base(l.TokensURL) + "/model/" + url.PathEscape(string(alias))
+}
+
+// RouterSessionRequests is the dashboard's Requests tab opened on one
+// session. The dashboard wants at least 4 characters of the id.
+func (l Links) RouterSessionRequests(id SessionID) string {
+	if l.DashboardURL == "" || id == "" {
+		return ""
+	}
+	return base(l.DashboardURL) + "/v2#requests?session=" + url.QueryEscape(string(id))
 }
 
 // HasPrefix reports whether candidate is the session (or starts with the

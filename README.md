@@ -159,9 +159,9 @@ Two keys are shared across the tools, and pitf builds the URLs for them:
 
 ```
 pitf session                 # agents agent-monitor knows, with session ids
-pitf session 0d3e4b2a        # tokenator profile + transcript, matching monitor agent
+pitf session 0d3e4b2a        # tokenator profile + transcript, monitor agent, router requests
 pitf session 0d3e4b2a --open
-pitf model glm-fast          # dashboard catalog page + what /v1/models says
+pitf model glm-fast          # dashboard catalog, what /v1/models says, tokenator /model page
 ```
 
 Targets come from `[tools]` in the config (`monitor_url`, `tokens_url`,
@@ -172,9 +172,11 @@ The same section is exported to every subcommand as `AGENT_MONITOR_TOKENS_URL`
 and `TOKENATOR_MONITOR_URL` (plus `PITF_MONITOR_URL`, `PITF_TOKENS_URL`,
 `PITF_DASHBOARD_URL`), so `pitf monitor` and `pitf tokens serve` cross-link
 with no flags.
-The router's request log has no session identity, so there is no session
-jump into the router; tokenator groups usage by the harness's model name,
-so there is no alias jump into tokenator. In the UIs themselves,
+The router logs the session id each harness sends (Claude Code and opencode
+do; Pi sends none), so the session jump includes the dashboard's Requests
+tab; the model jump includes tokenator's `/model/<alias>` page, which matches
+the alias the caller sent the router. Both need llm-router-go and tokenator
+builds from 2026-09-23 or later. In the UIs themselves,
 `agent-monitor --tokens-url` and `tokenator serve --monitor-url` add the
 reciprocal links.
 

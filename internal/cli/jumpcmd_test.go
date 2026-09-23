@@ -15,7 +15,7 @@ import (
 )
 
 func TestSessionJumps(t *testing.T) {
-	l := keys.Links{MonitorURL: "http://m:8070", TokensURL: "http://t:8990"}
+	l := keys.Links{MonitorURL: "http://m:8070", TokensURL: "http://t:8990", DashboardURL: "https://d/dashboard"}
 	agents := []monitorAgent{
 		{Name: "cc llm-router", Session: "llm-router", Target: "llm-router:0.0", Status: "running", SessionID: "0d3e4b2a-aaaa"},
 		{Name: "cc meta", Session: "meta", Target: "meta:0.0", Status: "idle"},
@@ -23,7 +23,7 @@ func TestSessionJumps(t *testing.T) {
 	var buf bytes.Buffer
 	writeJumps(&buf, sessionJumps(l, "0d3e", agents, nil))
 	out := buf.String()
-	for _, want := range []string{"http://t:8990/session/0d3e", "http://t:8990/session/0d3e/transcript", "cc llm-router (tmux llm-router:0.0, running)", "http://m:8070/", "no session id"} {
+	for _, want := range []string{"http://t:8990/session/0d3e", "http://t:8990/session/0d3e/transcript", "cc llm-router (tmux llm-router:0.0, running)", "http://m:8070/", "https://d/dashboard/v2#requests?session=0d3e"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in:\n%s", want, out)
 		}
@@ -40,17 +40,19 @@ func TestSessionJumps(t *testing.T) {
 	}
 	buf.Reset()
 	writeJumps(&buf, sessionJumps(keys.Links{}, "0d3e", nil, nil))
-	if !strings.Contains(buf.String(), "tokens_url not configured") || !strings.Contains(buf.String(), "monitor_url not configured") {
+	if !strings.Contains(buf.String(), "tokens_url not configured") || !strings.Contains(buf.String(), "monitor_url not configured") ||
+		!strings.Contains(buf.String(), "dashboard_url not configured") {
 		t.Fatalf("unconfigured: %s", buf.String())
 	}
 }
 
 func TestModelJumps(t *testing.T) {
-	l := keys.Links{DashboardURL: "https://d/dashboard"}
+	l := keys.Links{DashboardURL: "https://d/dashboard", TokensURL: "http://t:8990"}
 	models := []bench.Model{{ID: "glm-fast", OwnedBy: "vllm"}, {ID: "coder", Role: true}}
 	var buf bytes.Buffer
 	writeJumps(&buf, modelJumps(l, "glm-fast", models, nil))
-	if !strings.Contains(buf.String(), "https://d/dashboard/v2#catalog?model=glm-fast") || !strings.Contains(buf.String(), "model served by vllm") {
+	if !strings.Contains(buf.String(), "https://d/dashboard/v2#catalog?model=glm-fast") || !strings.Contains(buf.String(), "model served by vllm") ||
+		!strings.Contains(buf.String(), "http://t:8990/model/glm-fast") {
 		t.Fatalf("model: %s", buf.String())
 	}
 	buf.Reset()
@@ -65,7 +67,8 @@ func TestModelJumps(t *testing.T) {
 	}
 	buf.Reset()
 	writeJumps(&buf, modelJumps(keys.Links{}, "x", nil, errors.New("timeout")))
-	if !strings.Contains(buf.String(), "dashboard_url not configured") || !strings.Contains(buf.String(), "unreachable: timeout") {
+	if !strings.Contains(buf.String(), "dashboard_url not configured") || !strings.Contains(buf.String(), "unreachable: timeout") ||
+		!strings.Contains(buf.String(), "tokens_url not configured") {
 		t.Fatalf("unconfigured + down: %s", buf.String())
 	}
 }

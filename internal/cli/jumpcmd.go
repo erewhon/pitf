@@ -87,7 +87,11 @@ func sessionJumps(l keys.Links, id keys.SessionID, agents []monitorAgent, monito
 			out = append(out, jump{Tool: "monitor", What: fmt.Sprintf("%s (tmux %s, %s)", a.Name, a.Target, a.Status), URL: l.MonitorBoard()})
 		}
 	}
-	out = append(out, jump{Tool: "router", Note: "the request log carries no session id; use `pitf model <alias>` for the router side"})
+	if u := l.RouterSessionRequests(id); u != "" {
+		out = append(out, jump{Tool: "router", What: "requests", URL: u})
+	} else {
+		out = append(out, jump{Tool: "router", Note: "dashboard_url not configured (set [tools].dashboard_url)"})
+	}
 	return out
 }
 
@@ -122,7 +126,11 @@ func modelJumps(l keys.Links, alias keys.ModelAlias, models []bench.Model, route
 			out = append(out, jump{Tool: "router", Note: fmt.Sprintf("alias %q is not in /v1/models", alias)})
 		}
 	}
-	out = append(out, jump{Tool: "tokens", Note: "tokenator groups usage by the harness's model name, not router aliases (`pitf tokens report -by model`)"})
+	if u := l.TokensModel(alias); u != "" {
+		out = append(out, jump{Tool: "tokens", What: "model", URL: u})
+	} else {
+		out = append(out, jump{Tool: "tokens", Note: "tokens_url not configured"})
+	}
 	return out
 }
 
@@ -186,10 +194,11 @@ func newSessionCmd(gf *globalFlags) *cobra.Command {
 	var open bool
 	cmd := &cobra.Command{
 		Use:   "session [id-or-prefix]",
-		Short: "Jump to one coding session in tokenator and agent-monitor",
-		Long: "With an id (or a unique prefix of the Claude Code session UUID), prints the\n" +
-			"tokenator profile and transcript URLs and the agent-monitor agent that reports\n" +
-			"the same id. With no id, lists the agents agent-monitor knows and their session ids.",
+		Short: "Jump to one coding session in tokenator, agent-monitor and the router",
+		Long: "With an id (or a unique prefix of the harness session id), prints the\n" +
+			"tokenator profile and transcript URLs, the agent-monitor agent that reports\n" +
+			"the same id, and the router dashboard's requests for it (4+ characters).\n" +
+			"With no id, lists the agents agent-monitor knows and their session ids.",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			r, err := config.Resolve(gf.options())
@@ -233,7 +242,7 @@ func newModelCmd(gf *globalFlags) *cobra.Command {
 	var open bool
 	cmd := &cobra.Command{
 		Use:   "model <alias>",
-		Short: "Jump to one router model alias in the dashboard",
+		Short: "Jump to one router model alias in the dashboard and tokenator",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			r, err := config.Resolve(gf.options())
@@ -263,6 +272,6 @@ func newModelCmd(gf *globalFlags) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().BoolVar(&open, "open", false, "open the dashboard page in the browser")
+	cmd.Flags().BoolVar(&open, "open", false, "open every URL in the browser")
 	return cmd
 }
