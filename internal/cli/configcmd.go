@@ -125,6 +125,12 @@ func writeShow(cmd *cobra.Command, r *config.Resolved) error {
 	default:
 		fmt.Fprintf(w, "router.key:  (unset)\n")
 	}
+	if r.HasNous() {
+		fmt.Fprintf(w, "nous.url:    %s (from %s)\n", r.NousURL, r.NousURLSource)
+		fmt.Fprintf(w, "nous.key:    %s\n", r.NousKeySource)
+	} else {
+		fmt.Fprintf(w, "nous:        (unset; needed only by `pitf bench import`)\n")
+	}
 	fmt.Fprintf(w, "tools:       monitor %s · tokens %s · dashboard %s\n", orUnset(r.Tools.MonitorURL), orUnset(r.Tools.TokensURL), orUnset(r.Tools.DashboardURL))
 	if len(r.Env) > 0 {
 		keys := make([]string, 0, len(r.Env))

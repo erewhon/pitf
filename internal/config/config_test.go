@@ -30,6 +30,10 @@ OVERRIDDEN = "from-work"
 [tools]
 dashboard_url = "https://home.example/dashboard"
 
+[nous]
+url = "https://nous.example"
+api_key_cmd = "echo nous-key"
+
 [profiles.work.tools]
 tokens_url = "http://work-box:8990"
 `
@@ -145,7 +149,12 @@ func TestAPIKeyCmdNotRunWhenAmbientKeySatisfies(t *testing.T) {
 	calls := 0
 	r := mustResolve(t, sample, Options{
 		Getenv: envOf(map[string]string{"ROUTER_API_KEY": "ambient"}),
-		Run:    func(string) (string, error) { calls++; return "x", nil },
+		Run: func(cmd string) (string, error) {
+			if cmd == "echo home-key" { // the router key command; the nous one may run
+				calls++
+			}
+			return "x", nil
+		},
 	})
 	env, err := r.Environment()
 	if err != nil {
@@ -175,7 +184,7 @@ func TestEnvironmentMergesTablesAndRespectsAmbient(t *testing.T) {
 	})
 	env, _ = r.Environment()
 	want := []string{
-		"AGENT_MONITOR_TOKENS_URL=http://work-box:8990", "OVERRIDDEN=from-work",
+		"AGENT_MONITOR_TOKENS_URL=http://work-box:8990", "NOUS_API_KEY=nous-key", "NOUS_DAEMON_URL=https://nous.example", "OVERRIDDEN=from-work",
 		"PITF_DASHBOARD_URL=https://home.example/dashboard", "PITF_MONITOR_URL=" + DefaultMonitorURL,
 		"PITF_PROFILE=work", "PITF_ROUTER_API_KEY=work-literal", "PITF_ROUTER_URL=https://work.example",
 		"PITF_TOKENS_URL=http://work-box:8990", "ROUTER_API_KEY=work-literal", "SHARED=from-defaults",
@@ -220,5 +229,38 @@ func TestToolEnvRespectsHandExports(t *testing.T) {
 	env, _ := r.Environment()
 	if contains(env, "AGENT_MONITOR_TOKENS_URL="+DefaultTokensURL) || !contains(env, "TOKENATOR_MONITOR_URL="+DefaultMonitorURL) {
 		t.Fatalf("implicit profile must keep the hand export and still add the other: %v", env)
+	}
+}
+
+func TestNousResolutionAndEnv(t *testing.T) {
+	calls := 0
+	r := mustResolve(t, sample, Options{Run: func(cmd string) (string, error) {
+		if cmd == "echo nous-key" {
+			calls++
+			return "nous-key\n", nil
+		}
+		return "home-key", nil
+	}})
+	if !r.HasNous() || r.NousURL != "https://nous.example" || r.NousKeySource != "[nous] defaults (command)" {
+		t.Fatalf("nous: %+v", r)
+	}
+	env, err := r.Environment()
+	if err != nil || !contains(env, "NOUS_DAEMON_URL=https://nous.example") || !contains(env, "NOUS_API_KEY=nous-key") || calls != 1 {
+		t.Fatalf("env=%v err=%v calls=%d", env, err, calls)
+	}
+	// ambient NOUS_API_KEY wins on an implicit profile and the command never runs
+	calls = 0
+	r = mustResolve(t, sample, Options{Getenv: envOf(map[string]string{"NOUS_API_KEY": "amb", "ROUTER_API_KEY": "k"}), Run: func(string) (string, error) { calls++; return "x", nil }})
+	k, _ := r.NousAPIKey()
+	if k != "amb" || calls != 0 {
+		t.Fatalf("ambient: %q calls=%d", k, calls)
+	}
+	// no [nous] section → nothing exported
+	r = mustResolve(t, "[router]\nurl=\"x\"\n", Options{})
+	env, _ = r.Environment()
+	for _, kv := range env {
+		if strings.HasPrefix(kv, "NOUS_") {
+			t.Fatalf("NOUS_* exported without a [nous] section: %v", env)
+		}
 	}
 }

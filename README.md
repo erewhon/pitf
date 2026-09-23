@@ -80,6 +80,16 @@ Precedence, highest first: `--profile` / `--router-url` flags, then
 chosen explicitly; choosing one means "use that router"), then the
 profile, then the file's top-level defaults.
 
+`api_key_cmd` is any shell command that prints the secret, so it can be
+whatever the machine has. `ho secret get llm-router/api-key` at home; on a
+Mac `security find-generic-password -s llm-router -w` (after
+`security add-generic-password -s llm-router -a $USER -w`); with 1Password
+`op read "op://Private/llm-router/credential"`; with `pass`,
+`pass show llm-router/api-key`; or simply `cat ~/.config/pitf/router-key`
+on a file you `chmod 600`. A literal `api_key = "…"` in the config also
+works (keep the file 600, which `pitf config init` does). Each profile can
+use a different source, so home and work never share a command.
+
 Every subcommand receives the result as environment: `PITF_PROFILE`,
 `PITF_ROUTER_URL`, `PITF_ROUTER_API_KEY`, and `ROUTER_API_KEY` (what the
 llm-router Python tools read today), plus the `[env]` tables. Tools do not
@@ -102,6 +112,7 @@ pitf bench sweep --model qwen38-27b --model glm-fast
 pitf --profile work bench sweep --all --match 'qwen*' --json rows.jsonl
 pitf bench sweep --model ling3 --registry ~/code/smithy/llm-router/models.yaml
 pitf bench show rows.jsonl
+pitf bench import rows.jsonl --dry-run   # then without --dry-run, from home
 ```
 
 How the numbers are taken, and what to trust:
@@ -122,6 +133,13 @@ How the numbers are taken, and what to trust:
 - The generation leg asks for an essay and counts a run only if the model
   reached at least three quarters of the cut-off, so a two-token "OK" never
   becomes a decode figure.
+
+`pitf bench import <rows.jsonl>` appends those rows to the matrix through
+the Nous daemon named in `[nous]` (`url` plus `api_key` or `api_key_cmd`;
+`NOUS_DAEMON_URL` / `NOUS_API_KEY` also work). It drops the `measure`
+object, skips rows that failed every leg unless `--include-failed`, and
+`--dry-run` prints what would be posted. Forge is usually only reachable
+from home, so the workflow is: sweep at work with `--json`, import at home.
 
 This is a streaming probe, not llama-bench; the Flags column says so, and
 the matrix's llama-bench rows are not directly comparable. `--registry`

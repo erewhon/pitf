@@ -42,9 +42,18 @@ type Tools struct {
 	DashboardURL string `toml:"dashboard_url"`
 }
 
+// Nous is the Forge notebook's daemon: where `pitf bench import` writes
+// benchmark rows. Same shape as Router; usually only reachable from home.
+type Nous struct {
+	URL       string `toml:"url"`
+	APIKey    string `toml:"api_key"`
+	APIKeyCmd string `toml:"api_key_cmd"`
+}
+
 // Profile overrides the top-level defaults field by field.
 type Profile struct {
 	Router Router            `toml:"router"`
+	Nous   Nous              `toml:"nous"`
 	Tools  Tools             `toml:"tools"`
 	Env    map[string]string `toml:"env"`
 }
@@ -53,6 +62,7 @@ type Profile struct {
 type File struct {
 	DefaultProfile string             `toml:"default_profile"`
 	Router         Router             `toml:"router"`
+	Nous           Nous               `toml:"nous"`
 	Tools          Tools              `toml:"tools"`
 	Env            map[string]string  `toml:"env"`
 	Profiles       map[string]Profile `toml:"profiles"`
@@ -93,6 +103,17 @@ type Resolved struct {
 	keyDone    bool
 	run        func(string) (string, error)
 
+	// Nous daemon, resolved like the router: PITF_NOUS_URL > ambient
+	// NOUS_DAEMON_URL (implicit profile only) > profile > defaults; key from
+	// PITF_NOUS_API_KEY > ambient NOUS_API_KEY > profile > defaults.
+	NousURL       string
+	NousURLSource string
+	NousKeySource string
+	nousKeyLit    string
+	nousKeyCmd    string
+	nousKeyCache  string
+	nousKeyDone   bool
+
 	// Tools is the merged [tools] + [profiles.X.tools] (profile wins per
 	// field), with built-in defaults for monitor and tokens.
 	Tools Tools
@@ -119,6 +140,10 @@ const (
 	// pages link back to the board.
 	EnvMonitorTokensURL = "AGENT_MONITOR_TOKENS_URL"
 	EnvTokenatorMonitor = "TOKENATOR_MONITOR_URL"
+	EnvPitfNousURL      = "PITF_NOUS_URL"
+	EnvPitfNousAPIKey   = "PITF_NOUS_API_KEY"
+	EnvNousURL          = "NOUS_DAEMON_URL" // what nous-mcp, forge and meta read
+	EnvNousAPIKey       = "NOUS_API_KEY"
 	EnvPitfMonitorURL   = "PITF_MONITOR_URL"
 	EnvPitfTokensURL    = "PITF_TOKENS_URL"
 	EnvPitfDashboardURL = "PITF_DASHBOARD_URL"
@@ -255,7 +280,35 @@ func resolve(f File, path string, found bool, opts Options, getenv func(string) 
 		DashboardURL: pick("PITF_DASHBOARD_URL", prof.Tools.DashboardURL, f.Tools.DashboardURL, ""),
 	}
 
-	// 5. Extra env: defaults, then profile on top.
+	// 5. Nous daemon (optional).
+	switch {
+	case getenv(EnvPitfNousURL) != "":
+		r.NousURL, r.NousURLSource = getenv(EnvPitfNousURL), EnvPitfNousURL
+	case !r.ProfileExplicit && getenv(EnvNousURL) != "":
+		r.NousURL, r.NousURLSource = getenv(EnvNousURL), EnvNousURL+" (already set)"
+	case prof.Nous.URL != "":
+		r.NousURL, r.NousURLSource = prof.Nous.URL, "profile "+r.Profile
+	case f.Nous.URL != "":
+		r.NousURL, r.NousURLSource = f.Nous.URL, "[nous] defaults"
+	}
+	switch {
+	case getenv(EnvPitfNousAPIKey) != "":
+		r.nousKeyLit, r.NousKeySource = getenv(EnvPitfNousAPIKey), EnvPitfNousAPIKey
+	case !r.ProfileExplicit && getenv(EnvNousAPIKey) != "":
+		r.nousKeyLit, r.NousKeySource = getenv(EnvNousAPIKey), EnvNousAPIKey+" (already set)"
+	case prof.Nous.APIKey != "":
+		r.nousKeyLit, r.NousKeySource = prof.Nous.APIKey, "profile "+r.Profile+" (literal)"
+	case prof.Nous.APIKeyCmd != "":
+		r.nousKeyCmd, r.NousKeySource = prof.Nous.APIKeyCmd, "profile "+r.Profile+" (command)"
+	case f.Nous.APIKey != "":
+		r.nousKeyLit, r.NousKeySource = f.Nous.APIKey, "[nous] defaults (literal)"
+	case f.Nous.APIKeyCmd != "":
+		r.nousKeyCmd, r.NousKeySource = f.Nous.APIKeyCmd, "[nous] defaults (command)"
+	default:
+		r.NousKeySource = "none"
+	}
+
+	// 6. Extra env: defaults, then profile on top.
 	r.Env = map[string]string{}
 	for k, v := range f.Env {
 		r.Env[k] = v
@@ -295,6 +348,31 @@ func (r *Resolved) APIKey() (string, error) {
 	return r.keyCache, nil
 }
 
+// HasNous reports whether a Nous daemon URL is configured.
+func (r *Resolved) HasNous() bool { return r.NousURL != "" }
+
+// NousAPIKey resolves the Nous key lazily, running its command at most once.
+func (r *Resolved) NousAPIKey() (string, error) {
+	if r.nousKeyLit != "" {
+		return r.nousKeyLit, nil
+	}
+	if r.nousKeyCmd == "" {
+		return "", nil
+	}
+	if r.nousKeyDone {
+		return r.nousKeyCache, nil
+	}
+	out, err := r.run(r.nousKeyCmd)
+	if err != nil {
+		return "", fmt.Errorf("nous api_key_cmd %q: %w", r.nousKeyCmd, err)
+	}
+	r.nousKeyCache, r.nousKeyDone = strings.TrimSpace(out), true
+	if r.nousKeyCache == "" {
+		return "", fmt.Errorf("nous api_key_cmd %q printed nothing", r.nousKeyCmd)
+	}
+	return r.nousKeyCache, nil
+}
+
 // Environment returns the variables pitf exports to a subcommand, in a
 // stable order. The key command runs only if a key is needed, i.e. there is
 // a source and nothing already satisfies it.
@@ -314,6 +392,22 @@ func (r *Resolved) Environment() ([]string, error) {
 		set[EnvAPIKey] = key
 		set[EnvToolAPIKey] = key
 	}
+	// Nous, only when configured: forge and meta read these names.
+	if r.HasNous() {
+		if r.ProfileExplicit || r.getenv(EnvNousURL) == "" {
+			set[EnvNousURL] = r.NousURL
+		}
+		if r.nousKeyLit != "" || r.nousKeyCmd != "" {
+			if r.ProfileExplicit || r.getenv(EnvNousAPIKey) == "" {
+				key, err := r.NousAPIKey()
+				if err != nil {
+					return nil, err
+				}
+				set[EnvNousAPIKey] = key
+			}
+		}
+	}
+
 	// Tool cross-links and the resolved tool URLs, under the same
 	// no-clobber rule as the user tables.
 	tools := map[string]string{
@@ -383,6 +477,12 @@ default_profile = "home"
 [router]
 url = "https://llm.bcc.sh"
 api_key_cmd = "ho secret get llm-router/api-key"
+
+# Nous daemon (Forge notebook) for pitf bench import. Optional; leave it
+# out on a box that cannot reach it. A PAT file or ho secret both work.
+# [nous]
+# url = "https://app.nous.page"
+# api_key_cmd = "cat ~/.config/nous/euclid-pat"
 
 # Where the tools' web UIs live, for pitf session / pitf model jumps.
 # monitor/tokens default to the tools' loopback ports; the dashboard has no

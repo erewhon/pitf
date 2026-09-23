@@ -24,7 +24,7 @@ func newBenchCmd(gf *globalFlags) *cobra.Command {
 			"NOT llama-bench; rows say so in Flags. The legacy multi-target comparison tool\n" +
 			"(llm-router-bench) is still reachable as `pitf bench-py`.",
 	}
-	cmd.AddCommand(newBenchSweepCmd(gf), newBenchShowCmd())
+	cmd.AddCommand(newBenchSweepCmd(gf), newBenchShowCmd(), newBenchImportCmd(gf))
 	return cmd
 }
 
