@@ -271,8 +271,91 @@ func TestPrefixCacheTolerance(t *testing.T) {
 	if s := mk(42, 500); s.Err != "" || s.ProcessedPrompt != 500 || s.PromptTokens != 542 {
 		t.Fatalf("template-header cache hit must be tolerated: %+v", s)
 	}
-	if s := mk(400, 100); !strings.Contains(s.Err, "prefix cache hit") {
-		t.Fatalf("a real prompt cache hit must void the run: %+v", s)
+	s := mk(400, 100)
+	if !s.LargeCacheHit() {
+		t.Fatalf("400 of 500 cached must count as a large hit: %+v", s)
+	}
+	// With no warmup baseline a large hit voids the run, as before.
+	if err := acceptCachedPrefix(s, 0); err == nil || !strings.Contains(err.Error(), "no warmup baseline") {
+		t.Fatalf("large hit without baseline: %v", err)
+	}
+	// Matching the warmup's hit (within slack) is a constant injected prefix.
+	if err := acceptCachedPrefix(s, 404); err != nil {
+		t.Fatalf("constant prefix must be accepted: %v", err)
+	}
+	// A hit that changed size is the prompt itself being cached.
+	if err := acceptCachedPrefix(s, 300); err == nil || !strings.Contains(err.Error(), "differs from the warmup") {
+		t.Fatalf("changed prefix: %v", err)
+	}
+	// Same size, but almost nothing left to prefill: still a cached prompt.
+	if err := acceptCachedPrefix(mk(723, 10), 723); err == nil || !strings.Contains(err.Error(), "uncached") {
+		t.Fatalf("tiny remainder: %v", err)
+	}
+}
+
+// fakePrefixServer mimics llama-server behind the tool proxy: every request
+// reports the same cached prefix (cache_n) and prefills the rest.
+func fakePrefixServer(t *testing.T, cacheN func(i int) int) *httptest.Server {
+	t.Helper()
+	var n int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Messages []struct {
+				Content string `json:"content"`
+			} `json:"messages"`
+			MaxTokens int `json:"max_tokens"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		i := int(atomic.AddInt32(&n, 1)) - 1
+		promptN := len(req.Messages[0].Content) / 4
+		w.Header().Set("Content-Type", "text/event-stream")
+		for k := 0; k < req.MaxTokens; k++ {
+			fmt.Fprintf(w, "data: %s\n\n", must(json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": map[string]any{"content": "x"}}}})))
+		}
+		fmt.Fprintf(w, "data: %s\n\n", must(json.Marshal(map[string]any{"choices": []any{map[string]any{"delta": map[string]any{}}},
+			"timings": map[string]any{"cache_n": cacheN(i), "prompt_n": promptN, "prompt_ms": 100.0, "predicted_n": req.MaxTokens, "predicted_ms": float64(req.MaxTokens) * 10}})))
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestSweepAcceptsConstantCachedPrefix(t *testing.T) {
+	srv := fakePrefixServer(t, func(int) int { return 723 })
+	c := &Client{BaseURL: srv.URL, APIKey: "k"}
+	rows, err := Sweep(context.Background(), c, Options{Models: []string{"qwen3.8-27b"}, Runs: 2, Warmup: 1, PP: []int{512}, TG: 20})
+	if err != nil || rows[0].Measure.Failed {
+		t.Fatalf("constant 723-token prefix must be accepted: %v %+v", err, rows[0])
+	}
+	r := rows[0]
+	if r.PP512 == nil || r.TG128 == nil {
+		t.Fatalf("legs missing: %+v", r)
+	}
+	if !strings.Contains(r.Notes, "Cached prefix 723 tok") {
+		t.Fatalf("notes should record the prefix: %q", r.Notes)
+	}
+	// pp counts only the uncached tokens: prompt_n over prompt_ms.
+	if l := r.Measure.Legs[0]; l.CachedPrefix != 723 || l.Tokens >= 723 {
+		t.Fatalf("pp leg = %+v, want cached_prefix 723 and uncached token count", l)
+	}
+}
+
+func TestSweepRejectsGrowingCachedPrefix(t *testing.T) {
+	// Warmup sees 723 cached; measured runs see much more — a cached prompt.
+	srv := fakePrefixServer(t, func(i int) int { return 723 + i*400 })
+	c := &Client{BaseURL: srv.URL, APIKey: "k"}
+	rows, _ := Sweep(context.Background(), c, Options{Models: []string{"m"}, Runs: 1, Warmup: 1, PP: []int{512}, TG: 20})
+	if !rows[0].Measure.Failed || !strings.Contains(rows[0].Notes, "differs from the warmup") {
+		t.Fatalf("growing prefix must fail every leg: %+v", rows[0])
+	}
+}
+
+func TestSweepRejectsLargeHitWithoutWarmup(t *testing.T) {
+	srv := fakePrefixServer(t, func(int) int { return 723 })
+	c := &Client{BaseURL: srv.URL, APIKey: "k"}
+	rows, _ := Sweep(context.Background(), c, Options{Models: []string{"m"}, Runs: 1, Warmup: 0, PP: []int{512}, TG: 20})
+	if !rows[0].Measure.Failed || !strings.Contains(rows[0].Notes, "no warmup baseline") {
+		t.Fatalf("no baseline must keep the old refusal: %+v", rows[0])
 	}
 }
 

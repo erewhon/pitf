@@ -57,6 +57,40 @@ type Leg struct {
 	Errors  []string  `json:"errors,omitempty"`
 	Samples []float64 `json:"samples_tps"`
 	Source  string    `json:"source"` // "server timings" (llama-server) or "client" (usage + wall clock)
+	// CachedPrefix is the constant prefix (tokens) the server served from
+	// cache on every run — a proxy-injected tool block or system prompt. pp
+	// rates exclude it (they count prompt_n, the uncached tokens). 0 = none.
+	CachedPrefix int `json:"cached_prefix,omitempty"`
+}
+
+// cachedPrefixSlack is how far a run's cache_n may drift from the warmup's
+// and still count as the same injected prefix (tokenizer boundary effects).
+const cachedPrefixSlack = 8
+
+// minUncached is the fewest freshly prefilled tokens a run with a large
+// cache hit must still have; fewer means the prompt itself was cached.
+const minUncached = 32
+
+// acceptCachedPrefix decides whether a large cache hit is the constant
+// prefix seen in warmup (accepted: prompt_n still measures real prefill) or
+// a cached prompt (rejected). baseline is the warmup's cache_n, 0 if none.
+func acceptCachedPrefix(s Sample, baseline int) error {
+	if !s.LargeCacheHit() {
+		return nil
+	}
+	d := s.CacheN - baseline
+	if d < 0 {
+		d = -d
+	}
+	switch {
+	case baseline == 0:
+		return fmt.Errorf("prefix cache hit (%d of %d prompt tokens) and no warmup baseline: prefill rate would be wrong", s.CacheN, s.PromptTokens)
+	case d > cachedPrefixSlack:
+		return fmt.Errorf("prefix cache hit (%d of %d prompt tokens) differs from the warmup's %d: the prompt itself was cached", s.CacheN, s.PromptTokens, baseline)
+	case s.ProcessedPrompt < minUncached:
+		return fmt.Errorf("prefix cache hit (%d of %d prompt tokens) left only %d uncached: the prompt itself was cached", s.CacheN, s.PromptTokens, s.ProcessedPrompt)
+	}
+	return nil
 }
 
 // Sweep benchmarks every model in opts and returns one Row per model.
@@ -69,26 +103,34 @@ func Sweep(ctx context.Context, c *Client, opts Options) ([]Row, error) {
 			return rows, ctx.Err()
 		}
 		fmt.Fprintf(opts.Progress, "%s\n", model)
+		// baseline: the warmup's cache hit. A fixed prefix the path injects
+		// (tool definitions, a system prompt) is cached by the time warmup
+		// ends and shows the same cache_n on every later request.
+		baseline := 0
 		for i := 0; i < opts.Warmup; i++ {
 			fmt.Fprintf(opts.Progress, "  warmup %d/%d…", i+1, opts.Warmup)
 			s := c.Complete(ctx, model, BuildPrompt(rng, 64), 16)
-			if s.Err != "" {
+			switch {
+			case s.Err != "":
 				fmt.Fprintf(opts.Progress, " error: %s\n", s.Err)
-			} else {
+			case s.LargeCacheHit():
+				baseline = s.CacheN
+				fmt.Fprintf(opts.Progress, " ok (cached prefix %d tok)\n", s.CacheN)
+			default:
 				fmt.Fprintf(opts.Progress, " ok\n")
 			}
 		}
 		var legs []Leg
 		for _, pp := range opts.PP {
-			legs = append(legs, runLeg(ctx, c, opts, rng, model, fmt.Sprintf("pp%d", pp), pp, 16, true))
+			legs = append(legs, runLeg(ctx, c, opts, rng, model, fmt.Sprintf("pp%d", pp), pp, 16, true, baseline))
 		}
-		legs = append(legs, runLeg(ctx, c, opts, rng, model, fmt.Sprintf("tg%d", opts.TG), 0, opts.TG, false))
+		legs = append(legs, runLeg(ctx, c, opts, rng, model, fmt.Sprintf("tg%d", opts.TG), 0, opts.TG, false, baseline))
 		rows = append(rows, NewRow(model, legs, opts, c))
 	}
 	return rows, nil
 }
 
-func runLeg(ctx context.Context, c *Client, opts Options, rng *rand.Rand, model, name string, promptTokens, maxTokens int, prompt bool) Leg {
+func runLeg(ctx context.Context, c *Client, opts Options, rng *rand.Rand, model, name string, promptTokens, maxTokens int, prompt bool, baseline int) Leg {
 	leg := Leg{Name: name, Runs: opts.Runs}
 	type rec struct {
 		tps  float64
@@ -109,6 +151,13 @@ func runLeg(ctx context.Context, c *Client, opts Options, rng *rand.Rand, model,
 			text = BuildGenPrompt(rng)
 		}
 		s := c.Complete(ctx, model, text, maxTokens)
+		if s.Err == "" {
+			if err := acceptCachedPrefix(s, baseline); err != nil {
+				s.Err = err.Error()
+			} else if s.LargeCacheHit() {
+				leg.CachedPrefix = s.CacheN
+			}
+		}
 		if s.Err == "" && !s.HasTimings && s.Buffered() {
 			// Every token arrived in one burst at the end: a non-streaming
 			// proxy (the router's tool proxy does this) sat in between.

@@ -242,14 +242,18 @@ func (c *Client) Complete(ctx context.Context, model, prompt string, maxTokens i
 		s.Err = "stream ended without a token"
 	} else if s.CompletionTokens == 0 {
 		s.Err = "no usage or timings in stream (server must honour stream_options.include_usage)"
-	} else if s.HasTimings && s.CacheN > 0 && s.CacheN*4 > s.PromptTokens {
-		// A few dozen cached tokens is the chat-template header (system
-		// prompt, role markers), which every request shares and llama-server
-		// reuses; prompt_n excludes them, so the rate is still right. A
-		// large hit means the prompt itself was cached and the run is void.
-		s.Err = fmt.Sprintf("prefix cache hit (%d of %d prompt tokens): prefill rate would be wrong", s.CacheN, s.PromptTokens)
 	}
 	return s
+}
+
+// LargeCacheHit reports a prefix-cache hit bigger than a chat-template
+// header: over a quarter of the prompt served from cache. On its own that
+// looks like a cached prompt, but a proxy that injects a fixed prefix (the
+// router's tool proxy puts ~700 tokens of tool definitions ahead of every
+// message) produces it on every request. The sweep tells the two apart by
+// comparing against the warmup (see acceptCachedPrefix).
+func (s Sample) LargeCacheHit() bool {
+	return s.HasTimings && s.CacheN > 0 && s.CacheN*4 > s.PromptTokens
 }
 
 func deltaHasTokens(d map[string]json.RawMessage) bool {

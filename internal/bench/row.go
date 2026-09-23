@@ -101,6 +101,13 @@ func NewRow(alias string, legs []Leg, opts Options, c *Client) Row {
 		}
 		flags = append(flags, fmt.Sprintf("%s: %d tok, ttft %.0f ms, %.1f–%.1f t/s (%s)", l.Name, l.Tokens, l.TTFTms, l.Min, l.Max, l.Source))
 	}
+	prefix := 0
+	for _, l := range legs {
+		prefix = max(prefix, l.CachedPrefix)
+	}
+	if prefix > 0 {
+		r.Notes = strings.TrimSpace(r.Notes + fmt.Sprintf(" Cached prefix %d tok on every request (a proxy-injected tool block or system prompt); pp rates count only the uncached tokens.", prefix))
+	}
 	if failed == len(legs) {
 		r.Measure.Failed = true
 		r.Verdict = "rejected"
