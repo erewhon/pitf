@@ -160,6 +160,23 @@ so there is no alias jump into tokenator. In the UIs themselves,
 `agent-monitor --tokens-url` and `tokenator serve --monitor-url` add the
 reciprocal links.
 
+## Installing
+
+```
+brew install erewhon/tap/pitf      # macOS and Linux; also installs the pitf-* shims
+```
+
+Or build from source (below). Either way, `pitf config init` first.
+
+What works from the binary alone, and what needs more:
+
+| command | needs |
+|---|---|
+| `pitf config`, `pitf session`, `pitf model` | nothing (tools reachable by URL) |
+| `pitf bench sweep`, `pitf bench show` | a router URL and key in the config |
+| `pitf monitor`, `pitf tokens …`, `pitf router …` | nothing: compiled in (`monitor` needs tmux, `router` needs a models.yaml) |
+| `pitf qual`, `pitf forge`, `pitf meta`, `pitf bench-py` | the `pitf-*` shims on PATH, `uv`, and the Python checkouts under `~/code/smithy` or `PITF_SMITHY_DIR` |
+
 ## Building
 
 ```
@@ -169,14 +186,16 @@ just install    # ~/.local/bin/pitf
 ```
 
 The Go tools are sibling checkouts under `~/code/smithy`. A `go.work` there
-lists `pitf`, `agent-monitor`, `tokenator`, and `llm-router-go`, so mounts
-build against the local trees without changing any module path. The
-`require` lines for those three modules carry a placeholder version: they
-resolve through the workspace, and `go mod tidy` would try to fetch them
-from the network, so do not run it (`go get` the third-party deps by name
-instead). A CI build outside that tree needs published tags or `replace`
-directives. Until the `pitf-cli-export` branches in the three repos are
-merged, they must be the checked-out branch for pitf to compile.
+lists `pitf`, `agent-monitor`, `tokenator`, and `llm-router-go`, so day-to-day
+builds use the local trees. `go.mod` pins each of the three to a commit on
+GitHub (pseudo-versions), which is what CI and GoReleaser build from with no
+workspace (`GOWORK=off go build ./...` reproduces that locally). After
+landing a change in one of the tools, push it and bump the pin:
+`GOWORK=off go get github.com/erewhon/<tool>@<commit> && GOWORK=off go mod tidy`. Always tidy with `GOWORK=off`; inside the workspace it would try to resolve the siblings differently.
+
+Releases: tag `vX.Y.Z` on GitHub and the release workflow builds
+darwin/linux archives and updates `Formula/pitf.rb` in `erewhon/homebrew-tap`
+(needs the `HOMEBREW_TAP_GITHUB_TOKEN` repo secret).
 
 ## Layout
 

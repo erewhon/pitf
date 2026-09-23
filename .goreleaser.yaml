@@ -1,0 +1,70 @@
+# GoReleaser — builds `pitf` and publishes a Homebrew formula to
+# github.com/erewhon/homebrew-tap on every `vX.Y.Z` tag.
+# A formula (not a cask) so Homebrew on Linux can install it too.
+version: 2
+
+project_name: pitf
+
+before:
+  hooks:
+    - go mod download
+
+builds:
+  - id: pitf
+    main: ./cmd/pitf
+    binary: pitf
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - id: pitf
+    ids: [pitf]
+    name_template: "pitf_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    files:
+      - LICENSE
+      - README.md
+      - contrib/wrappers/*
+
+checksum:
+  name_template: checksums.txt
+
+release:
+  github:
+    owner: erewhon
+    name: pitf
+
+brews:
+  - name: pitf
+    ids: [pitf]
+    repository:
+      owner: erewhon
+      name: homebrew-tap
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/erewhon/pitf"
+    description: "One command over the smithy LLM tools: agent-monitor, tokenator, llm-router, benchmarks"
+    license: "AGPL-3.0-or-later"
+    commit_author:
+      name: goreleaser-bot
+      email: noreply@byrnes.org
+    install: |
+      bin.install "pitf"
+      # The Python-tool shims: pitf qual / forge / meta / bench-py. They need
+      # uv and the checkouts under ~/code/smithy (or PITF_SMITHY_DIR).
+      bin.install Dir["contrib/wrappers/pitf-*"]
+      generate_completions_from_executable(bin/"pitf", "completion")
+    caveats: |
+      Built in: pitf monitor | tokens | router … | bench sweep | session | model | config
+      External (need uv + the Python checkouts on PITF_SMITHY_DIR): pitf qual | forge | meta | bench-py
+
+      First run: pitf config init

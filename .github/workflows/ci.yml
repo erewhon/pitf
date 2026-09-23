@@ -1,0 +1,19 @@
+name: ci
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      # Standalone module build: no go.work, so the sibling tools resolve by
+      # the pinned commits in go.mod, exactly as a release build does.
+      - run: go vet ./...
+      - run: go test ./...
