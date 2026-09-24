@@ -92,6 +92,34 @@ func TestRouterTabIsLinksNotAFrame(t *testing.T) {
 	}
 }
 
+func TestLoopbackRouterDashboardIsFramed(t *testing.T) {
+	local := keys.Links{MonitorURL: links.MonitorURL, TokensURL: links.TokensURL, DashboardURL: "http://127.0.0.1:4011"}
+	r := Frames(local, "0d3e4b2a", "")[2]
+	if r.LinkOnly || len(r.Extra) != 0 || r.URL != "http://127.0.0.1:4011/v2#requests?session=0d3e4b2a" {
+		t.Fatalf("loopback router tab should be a plain frame: %+v", r)
+	}
+	body := get(t, &Server{Links: local}, "/?session=0d3e4b2a")
+	if !strings.Contains(body, `data-src="http://127.0.0.1:4011/v2#requests?session=0d3e4b2a"`) {
+		t.Error("loopback router dashboard should be framed")
+	}
+	for u, want := range map[string]bool{
+		"http://localhost:4011": true, "http://[::1]:4011/": true, "http://127.0.0.1:4011": true,
+		"https://llm-dashboard.bcc.sh": false, "http://192.168.1.5:4011": false, "": false,
+	} {
+		if got := isLoopbackURL(u); got != want {
+			t.Errorf("isLoopbackURL(%q) = %v, want %v", u, got, want)
+		}
+	}
+}
+
+func TestLoopbackRouterIsProbed(t *testing.T) {
+	local := keys.Links{DashboardURL: "http://127.0.0.1:4011"}
+	s := &Server{Links: local, Probe: func(context.Context, string) error { return errors.New("connection refused") }}
+	if body := get(t, s, "/?tab=router"); !strings.Contains(body, "start it with `pitf router serve`") {
+		t.Error("a stopped loopback router should show a notice")
+	}
+}
+
 func get(t *testing.T, s *Server, target string) string {
 	t.Helper()
 	rec := httptest.NewRecorder()

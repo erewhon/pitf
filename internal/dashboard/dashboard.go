@@ -7,11 +7,13 @@
 // its monitor loop, and both use absolute paths that break under a prefix.
 // Framing needs no change to any of them.
 //
-// The page has no auth of its own, so it only listens on loopback. The router
-// dashboard is not framed: it sits behind the front door's SSO, the SSO
-// cookie is not sent to a frame on a cross-site (loopback) page, and the
-// login page refuses framing (frame-ancestors 'none'). Its tab is a panel of
-// links that open it in a new browser tab instead.
+// The page has no auth of its own, so it only listens on loopback. A router
+// dashboard on loopback (the router's default --dashboard-addr, as on a work
+// laptop) has no auth either and is framed like the others. A remote one is
+// not: it sits behind the front door's SSO, the SSO cookie is not sent to a
+// frame on a cross-site (loopback) page, and the login page refuses framing
+// (frame-ancestors 'none'). Its tab is then a panel of links that open it in
+// a new browser tab.
 package dashboard
 
 import (
@@ -21,6 +23,7 @@ import (
 	"html/template"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -77,7 +80,7 @@ func Frames(l keys.Links, id keys.SessionID, alias keys.ModelAlias) []Frame {
 		tokens.URL = strings.TrimRight(l.TokensURL, "/") + "/"
 	}
 
-	router := Frame{ID: "router", Label: "Router", LinkOnly: true}
+	router := Frame{ID: "router", Label: "Router", LinkOnly: !isLoopbackURL(l.DashboardURL)}
 	switch {
 	case l.DashboardURL == "":
 		router.Note, router.Hint = "dashboard_url not configured", "set [tools].dashboard_url in the pitf config"
@@ -88,7 +91,7 @@ func Frames(l keys.Links, id keys.SessionID, alias keys.ModelAlias) []Frame {
 	default:
 		router.URL, router.URLLabel = strings.TrimRight(l.DashboardURL, "/")+"/v2", "Router dashboard"
 	}
-	if router.URL != "" {
+	if router.URL != "" && router.LinkOnly {
 		home := strings.TrimRight(l.DashboardURL, "/") + "/v2"
 		router.Extra = append(router.Extra, Link{"requests for this session", l.RouterSessionRequests(id)},
 			Link{"catalog for this model", l.RouterCatalogModel(alias)}, Link{"dashboard home", home})
@@ -146,8 +149,8 @@ func (s *Server) handlePage(w http.ResponseWriter, r *http.Request) {
 }
 
 // probeLocal checks the framed targets in parallel. Link-only targets are
-// not probed: the router dashboard answers pitf with an SSO redirect, which
-// says nothing about the browser's session.
+// not probed: a remote router dashboard answers pitf with an SSO redirect,
+// which says nothing about the browser's session.
 func (s *Server) probeLocal(ctx context.Context, frames []Frame) {
 	if s.Probe == nil {
 		return
@@ -168,6 +171,8 @@ func (s *Server) probeLocal(ctx context.Context, frames []Frame) {
 					f.Hint = "start it with `pitf monitor`"
 				case "tokens":
 					f.Hint = "start it with `pitf tokens serve`"
+				case "router":
+					f.Hint = "start it with `pitf router serve` (the dashboard listens on --dashboard-addr)"
 				}
 				f.URL = ""
 			}
@@ -177,10 +182,10 @@ func (s *Server) probeLocal(ctx context.Context, frames []Frame) {
 }
 
 // HTTPProbe is the default Probe: any HTTP answer means the tool is up.
-func HTTPProbe(ctx context.Context, url string) error {
+func HTTPProbe(ctx context.Context, target string) error {
 	ctx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
 		return err
 	}
@@ -190,6 +195,21 @@ func HTTPProbe(ctx context.Context, url string) error {
 	}
 	resp.Body.Close()
 	return nil
+}
+
+// isLoopbackURL reports whether u points at this machine (localhost or a
+// loopback IP), where no front door or SSO sits in the way.
+func isLoopbackURL(u string) bool {
+	parsed, err := url.Parse(u)
+	if err != nil {
+		return false
+	}
+	host := parsed.Hostname()
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // CheckLoopback refuses listen addresses other than loopback: the page has

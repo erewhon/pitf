@@ -22,8 +22,9 @@ func newDashboardCmd(gf *globalFlags) *cobra.Command {
 			"tokenator, the router dashboard), framed from [tools] in the config.\n" +
 			"A session id or model alias typed in the header points the tokens and\n" +
 			"router tabs at that session or model. The page has no auth, so it only\n" +
-			"listens on loopback. Each tab also offers an open-in-new-tab link, for\n" +
-			"when the router's front door refuses to be framed.",
+			"listens on loopback. A router dashboard on loopback is framed too; a\n" +
+			"remote one (behind SSO, which refuses framing) is a tab of links that\n" +
+			"open in a new browser tab.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := dashboard.CheckLoopback(listen); err != nil {

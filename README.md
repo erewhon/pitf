@@ -194,10 +194,18 @@ in the header and the Sessions tab opens on it (the same keys as `pitf
 session` / `pitf model`, carried in the page URL). A tool that is not
 configured or not running shows a notice in its tab instead of a frame.
 
-**Router** is a panel of links, not a frame. The dashboard sits behind the
-front door's single sign-on, the SSO cookie is not sent to a frame on a
-loopback page, and the sign-in page refuses framing, so its links (requests
-for the session, catalog for the model, home) open a new browser tab.
+**Router** depends on where the dashboard lives. On loopback (the router's
+default `--dashboard-addr 127.0.0.1:4011`, e.g. a work laptop running its own
+router) it has no auth and is framed like the others, following the session
+or model too. Anywhere else it is a panel of links: behind the front door's
+single sign-on, the SSO cookie is not sent to a frame on a loopback page and
+the sign-in page refuses framing, so its links (requests for the session,
+catalog for the model, home) open a new browser tab.
+
+```toml
+[profiles.work.tools]
+dashboard_url = "http://127.0.0.1:4011"   # framed
+```
 
 The page has no auth, so `--listen` must be loopback (127.0.0.1, ::1 or
 localhost); anything else is refused. The page frames the running apps
