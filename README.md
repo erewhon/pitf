@@ -207,6 +207,12 @@ catalog for the model, home) open a new browser tab.
 dashboard_url = "http://127.0.0.1:4011"   # framed
 ```
 
+A router started with `pitf router serve --dashboard` also gets an **Agents**
+tab in its own dashboard: pitf exports `PITF_MONITOR_URL`, the router reads
+it as `--dashboard-monitor-url`, and the tab lists agent-monitor's agents
+with each session linked to the dashboard's Requests view. That makes the
+router dashboard alone enough on a laptop that runs both.
+
 The page has no auth, so `--listen` must be loopback (127.0.0.1, ::1 or
 localhost); anything else is refused. The page frames the running apps
 rather than mounting them, so it needs `pitf monitor` / `pitf tokens serve`
