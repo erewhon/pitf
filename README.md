@@ -13,6 +13,7 @@ pitf monitor …      # agent-monitor        (compiled in)
 pitf tokens …       # tokenator            (compiled in)
 pitf router serve|node-agent|gpu-exporter|tool-proxy|say …
                     # llm-router-go cmds   (compiled in)
+pitf dashboard      # one local page over the three tool UIs (built in)
 pitf bench sweep …  # pp/tg throughput sweep (built in, Go)
 pitf bench-py …     # llm-router-bench     (external: legacy multi-target compare)
 pitf qual …         # llm-router-qual      (external: pitf-qual on PATH)
@@ -180,6 +181,29 @@ builds from 2026-09-23 or later. In the UIs themselves,
 `agent-monitor --tokens-url` and `tokenator serve --monitor-url` add the
 reciprocal links.
 
+### One page: `pitf dashboard`
+
+```
+pitf dashboard                       # http://127.0.0.1:8960/
+pitf dashboard --open --listen 127.0.0.1:9000
+```
+
+One local page with a tab per tool. **Agents** and **Sessions** frame the
+running agent-monitor board and tokenator; type a session id or model alias
+in the header and the Sessions tab opens on it (the same keys as `pitf
+session` / `pitf model`, carried in the page URL). A tool that is not
+configured or not running shows a notice in its tab instead of a frame.
+
+**Router** is a panel of links, not a frame. The dashboard sits behind the
+front door's single sign-on, the SSO cookie is not sent to a frame on a
+loopback page, and the sign-in page refuses framing, so its links (requests
+for the session, catalog for the model, home) open a new browser tab.
+
+The page has no auth, so `--listen` must be loopback (127.0.0.1, ::1 or
+localhost); anything else is refused. The page frames the running apps
+rather than mounting them, so it needs `pitf monitor` / `pitf tokens serve`
+up.
+
 ## Installing
 
 ```
@@ -222,5 +246,6 @@ darwin/linux archives and updates `Formula/pitf.rb` in `erewhon/homebrew-tap`
 ```
 cmd/pitf/          main: signal context, version stamp, exit codes
 internal/cli/      root command, external lookup and dispatch
+internal/dashboard/ pitf dashboard: the tabbed page and its frame targets
 contrib/wrappers/  pitf-* shims for the Python tools
 ```

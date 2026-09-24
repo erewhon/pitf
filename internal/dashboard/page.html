@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pitf dashboard</title>
+<style>
+  :root {
+    --bg: #f7f7f5; --panel: #ffffff; --fg: #1d1d1b; --muted: #6b6b66;
+    --line: #dcdcd6; --accent: #2f6f5e; --accent-fg: #ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161716; --panel: #1f201f; --fg: #e6e6e1; --muted: #9a9a93;
+      --line: #34352f; --accent: #6fb8a3; --accent-fg: #0f1a17;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: flex; flex-direction: column; background: var(--bg); color: var(--fg);
+    font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  header {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px;
+    padding: 8px 16px; border-bottom: 1px solid var(--line); background: var(--panel);
+  }
+  .brand { font-weight: 600; }
+  nav { display: flex; gap: 4px; }
+  nav button {
+    border: 1px solid var(--line); background: transparent; color: var(--fg);
+    padding: 4px 12px; border-radius: 6px; cursor: pointer; font: inherit;
+  }
+  nav button[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+  form { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-left: auto; }
+  input {
+    font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--fg);
+    background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; width: 16ch;
+  }
+  form button, form a {
+    font: inherit; padding: 4px 10px; border-radius: 6px; border: 1px solid var(--line);
+    background: transparent; color: var(--fg); cursor: pointer; text-decoration: none;
+  }
+  .open { font-size: 13px; color: var(--muted); }
+  .open a { color: var(--accent); }
+  main { flex: 1; position: relative; min-height: 0; }
+  section { position: absolute; inset: 0; display: none; }
+  section.active { display: block; }
+  iframe { width: 100%; height: 100%; border: 0; background: var(--panel); }
+  .note { padding: 32px 16px; max-width: 640px; }
+  .note p { margin: 0 0 6px; }
+  .note .hint { color: var(--muted); }
+  .note a { color: var(--accent); }
+  .note a.big { font-size: 16px; font-weight: 600; }
+  code { font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; }
+</style>
+</head>
+<body>
+<header>
+  <span class="brand">pitf</span>
+  <nav role="tablist">
+    {{- range .Frames}}
+    <button type="button" role="tab" data-tab="{{.ID}}" aria-selected="{{if eq .ID $.Tab}}true{{else}}false{{end}}">{{.Label}}</button>
+    {{- end}}
+  </nav>
+  <span class="open" id="open"></span>
+  <form method="get" action="/">
+    <input type="hidden" name="tab" id="tab" value="{{.Tab}}">
+    <input name="session" placeholder="session id" value="{{.Session}}" aria-label="session id or prefix">
+    <input name="model" placeholder="model alias" value="{{.Model}}" aria-label="router model alias">
+    <button type="submit">Go</button>
+    {{- if or .Session .Model}}
+    <a href="/?tab={{.Tab}}">Clear</a>
+    {{- end}}
+  </form>
+</header>
+<main>
+  {{- range .Frames}}
+  <section id="panel-{{.ID}}" data-url="{{.URL}}"{{if eq .ID $.Tab}} class="active"{{end}}>
+    {{- if .Note}}
+    <div class="note">
+      <p><strong>{{.Label}}:</strong> {{.Note}}</p>
+      {{- if .Hint}}<p class="hint">{{.Hint}}</p>{{end}}
+    </div>
+    {{- else if .LinkOnly}}
+    <div class="note">
+      <p><a class="big" href="{{.URL}}" target="_blank" rel="noopener">{{.URLLabel}} ↗</a></p>
+      {{- range .Extra}}
+      <p><a href="{{.URL}}" target="_blank" rel="noopener">{{.Label}} ↗</a></p>
+      {{- end}}
+      <p class="hint">It opens in a new tab: the dashboard sits behind single sign-on, and the sign-in page refuses to be embedded here.</p>
+    </div>
+    {{- else}}
+    <iframe title="{{.Label}}" data-src="{{.URL}}"></iframe>
+    {{- end}}
+  </section>
+  {{- end}}
+</main>
+<script>
+  // Frames load on first view, so the router's front door is only asked
+  // when its tab is opened; switching tabs keeps each frame's own state.
+  const open = document.getElementById('open');
+  const tabInput = document.getElementById('tab');
+  function show(id) {
+    for (const b of document.querySelectorAll('nav button')) {
+      b.setAttribute('aria-selected', b.dataset.tab === id ? 'true' : 'false');
+    }
+    for (const s of document.querySelectorAll('main section')) {
+      const on = s.id === 'panel-' + id;
+      s.classList.toggle('active', on);
+      const f = s.querySelector('iframe');
+      if (on && f && !f.getAttribute('src')) f.setAttribute('src', f.dataset.src);
+      if (on) {
+        open.replaceChildren();
+        if (s.dataset.url) {
+          const a = document.createElement('a');
+          a.href = s.dataset.url; a.target = '_blank'; a.rel = 'noopener';
+          a.textContent = 'open in new tab ↗';
+          open.append(a);
+        }
+      }
+    }
+    tabInput.value = id;
+    const u = new URL(location.href);
+    u.searchParams.set('tab', id);
+    history.replaceState(null, '', u);
+  }
+  for (const b of document.querySelectorAll('nav button')) {
+    b.addEventListener('click', () => show(b.dataset.tab));
+  }
+  show(tabInput.value);
+</script>
+</body>
+</html>
