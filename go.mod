@@ -5,7 +5,7 @@ go 1.26.4
 require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/erewhon/agent-monitor v0.34.2-0.20260922225537-7c3beb19d360
-	github.com/erewhon/llm-router-go v0.8.2-0.20260925022544-ce050c795190
+	github.com/erewhon/llm-router-go v0.8.2-0.20260925034208-8386e0e39495
 	github.com/erewhon/tokenator v0.1.1-0.20260922205917-cb9960b8853d
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.9

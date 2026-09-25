@@ -38,8 +38,8 @@ github.com/dustin/go-humanize v1.0.1 h1:GzkhY7T5VNhEkwH0PVJgjz+fX1rhBrR7pRT3mDkp
 github.com/dustin/go-humanize v1.0.1/go.mod h1:Mu1zIs6XwVuF/gI1OepvI0qD18qycQx+mFykh5fBlto=
 github.com/erewhon/agent-monitor v0.34.2-0.20260922225537-7c3beb19d360 h1:rRw4UYjF5YVwJxusoANt0wGKodEfUg1iiSG0/Ah4cg0=
 github.com/erewhon/agent-monitor v0.34.2-0.20260922225537-7c3beb19d360/go.mod h1:hk5Bk62A5ssAzg8Ytu9ap8exORnaaeb+xSam0xd29kU=
-github.com/erewhon/llm-router-go v0.8.2-0.20260925022544-ce050c795190 h1:4Njaz/hG4zAx5JVfMp9QclAd7pCMVzTdE/74ZAZdMNE=
-github.com/erewhon/llm-router-go v0.8.2-0.20260925022544-ce050c795190/go.mod h1:7qAbqXcxa95gcT9Iu0cL+WrR0HMcGY9HJlMH6ylEICU=
+github.com/erewhon/llm-router-go v0.8.2-0.20260925034208-8386e0e39495 h1:wqz/tZH91SDjBso9trRMGT2dNHU095W79+DBWKPaR0s=
+github.com/erewhon/llm-router-go v0.8.2-0.20260925034208-8386e0e39495/go.mod h1:7qAbqXcxa95gcT9Iu0cL+WrR0HMcGY9HJlMH6ylEICU=
 github.com/erewhon/tokenator v0.1.1-0.20260922205917-cb9960b8853d h1:hghsfK3Hq/Ov1Kj2479IH0Q4Zp75olzcdOuuyse9vUs=
 github.com/erewhon/tokenator v0.1.1-0.20260922205917-cb9960b8853d/go.mod h1:hyzrxLI1WGqw6CZZPWU60hFUucsxgJXiKapaG8sL3Hg=
 github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f h1:Y/CXytFA4m6baUTXGLOoWe4PQhGxaX0KpnayAqC48p4=
