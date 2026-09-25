@@ -50,12 +50,53 @@ type Nous struct {
 	APIKeyCmd string `toml:"api_key_cmd"`
 }
 
+// Services is what `pitf services install` sets up, so re-running it with
+// no flags reproduces the same agents. Command-line flags override the
+// scalars and append to the lists.
+type Services struct {
+	ModelsYAML     string   `toml:"models_yaml"`
+	RouterAddr     string   `toml:"router_addr"`
+	DashboardAddr  string   `toml:"dashboard_addr"`
+	RouterArgs     []string `toml:"router_args"`
+	RouterEnvFiles []string `toml:"router_env_files"`
+	IngestArgs     []string `toml:"ingest_args"`
+	IngestEvery    string   `toml:"ingest_every"` // Go duration, e.g. "5m"
+}
+
+// merge lays a profile's services over the defaults: a set scalar wins, and
+// a set list replaces (not extends) the default list, so a profile can say
+// exactly what it runs.
+func (s Services) merge(over Services) Services {
+	str := func(a, b string) string {
+		if b != "" {
+			return b
+		}
+		return a
+	}
+	list := func(a, b []string) []string {
+		if b != nil {
+			return b
+		}
+		return a
+	}
+	return Services{
+		ModelsYAML:     str(s.ModelsYAML, over.ModelsYAML),
+		RouterAddr:     str(s.RouterAddr, over.RouterAddr),
+		DashboardAddr:  str(s.DashboardAddr, over.DashboardAddr),
+		RouterArgs:     list(s.RouterArgs, over.RouterArgs),
+		RouterEnvFiles: list(s.RouterEnvFiles, over.RouterEnvFiles),
+		IngestArgs:     list(s.IngestArgs, over.IngestArgs),
+		IngestEvery:    str(s.IngestEvery, over.IngestEvery),
+	}
+}
+
 // Profile overrides the top-level defaults field by field.
 type Profile struct {
-	Router Router            `toml:"router"`
-	Nous   Nous              `toml:"nous"`
-	Tools  Tools             `toml:"tools"`
-	Env    map[string]string `toml:"env"`
+	Router   Router            `toml:"router"`
+	Nous     Nous              `toml:"nous"`
+	Tools    Tools             `toml:"tools"`
+	Services Services          `toml:"services"`
+	Env      map[string]string `toml:"env"`
 }
 
 // File is the on-disk shape of ~/.config/pitf/config.toml.
@@ -64,6 +105,7 @@ type File struct {
 	Router         Router             `toml:"router"`
 	Nous           Nous               `toml:"nous"`
 	Tools          Tools              `toml:"tools"`
+	Services       Services           `toml:"services"`
 	Env            map[string]string  `toml:"env"`
 	Profiles       map[string]Profile `toml:"profiles"`
 }
@@ -117,6 +159,9 @@ type Resolved struct {
 	// Tools is the merged [tools] + [profiles.X.tools] (profile wins per
 	// field), with built-in defaults for monitor and tokens.
 	Tools Tools
+
+	// Services is the merged [services] + [profiles.X.services].
+	Services Services
 
 	// Env is the merged [env] + [profiles.X.env] tables (profile wins).
 	Env map[string]string
@@ -307,6 +352,8 @@ func resolve(f File, path string, found bool, opts Options, getenv func(string) 
 	default:
 		r.NousKeySource = "none"
 	}
+
+	r.Services = f.Services.merge(prof.Services)
 
 	// 6. Extra env: defaults, then profile on top.
 	r.Env = map[string]string{}
@@ -506,4 +553,12 @@ url = "https://router.example.corp"
 [profiles.work.env]
 # FORGE-style per-agent vars, or anything else, go here:
 # CODE_REVIEWER_OPENAI_BASE_URL = "https://router.example.corp/v1"
+
+# What pitf services install runs on a laptop (macOS launchd). Re-running
+# install with no flags reproduces exactly this; flags override or append.
+# [profiles.work.services]
+# models_yaml = "~/.config/llm-router/models.yaml"
+# router_env_files = ["~/.config/llm-router/router.env"]
+# router_args = ["-log-format=text", "-wellknown-provider-name=Work Router"]
+# ingest_every = "5m"
 `

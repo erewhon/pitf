@@ -29,6 +29,9 @@ const (
 	DefaultRouterAddr    = "127.0.0.1:4010"
 	DefaultDashboardAddr = "127.0.0.1:4011"
 	DefaultIngestEvery   = 5 * time.Minute
+	// DefaultWellKnownProvider is the provider key OpenCode's model ids use
+	// ("llm/coder") when the router serves /.well-known/opencode.
+	DefaultWellKnownProvider = "llm"
 )
 
 // Spec is one launchd agent.

@@ -147,6 +147,19 @@ func writeShow(cmd *cobra.Command, r *config.Resolved) error {
 		fmt.Fprintf(w, "nous:        (unset; needed only by `pitf bench import`)\n")
 	}
 	fmt.Fprintf(w, "tools:       monitor %s · tokens %s · dashboard %s\n", orUnset(r.Tools.MonitorURL), orUnset(r.Tools.TokensURL), orUnset(r.Tools.DashboardURL))
+	if sv := r.Services; sv.ModelsYAML != "" || sv.RouterAddr != "" || sv.DashboardAddr != "" || sv.IngestEvery != "" ||
+		sv.RouterArgs != nil || sv.RouterEnvFiles != nil || sv.IngestArgs != nil {
+		fmt.Fprintf(w, "services:\n")
+		for _, kv := range [][2]string{
+			{"models_yaml", sv.ModelsYAML}, {"router_addr", sv.RouterAddr}, {"dashboard_addr", sv.DashboardAddr},
+			{"ingest_every", sv.IngestEvery}, {"router_args", strings.Join(maskArgs(sv.RouterArgs), " ")},
+			{"router_env_files", strings.Join(sv.RouterEnvFiles, ", ")}, {"ingest_args", strings.Join(sv.IngestArgs, " ")},
+		} {
+			if kv[1] != "" {
+				fmt.Fprintf(w, "  %s = %s\n", kv[0], kv[1])
+			}
+		}
+	}
 	if len(r.Env) > 0 {
 		keys := make([]string, 0, len(r.Env))
 		for k := range r.Env {
@@ -176,4 +189,39 @@ func shellQuote(s string) string {
 		return s
 	}
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+// maskArgs hides the value of any flag whose name looks secret-bearing
+// (-api-keys sk-…, -postgres-dsn …), inline or as the next argument.
+func maskArgs(args []string) []string {
+	secret := func(flag string) bool {
+		name := strings.ToLower(strings.TrimLeft(flag, "-"))
+		for _, w := range []string{"key", "secret", "token", "dsn", "password"} {
+			if strings.Contains(name, w) {
+				return true
+			}
+		}
+		return false
+	}
+	out := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if !strings.HasPrefix(a, "-") {
+			out = append(out, a)
+			continue
+		}
+		if name, _, inline := strings.Cut(a, "="); inline {
+			if secret(name) {
+				a = name + "=…"
+			}
+			out = append(out, a)
+			continue
+		}
+		out = append(out, a)
+		if secret(a) && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+			out = append(out, "…")
+			i++
+		}
+	}
+	return out
 }

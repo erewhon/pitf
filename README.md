@@ -246,6 +246,29 @@ Everything listens on loopback: a laptop router usually runs without
 `--router-arg` / `--ingest-arg` (repeatable) add flags, `--dry-run` prints the
 plists. Logs are in `~/Library/Logs/pitf/`.
 
+Settings live in the config so a bare `services install` always rebuilds the
+same agents; flags override its scalars and append to its lists:
+
+```toml
+[profiles.work.services]
+models_yaml = "~/.config/llm-router/models.yaml"
+router_env_files = ["~/.config/llm-router/router.env"]
+router_args = ["-log-format=text"]
+# router_addr = "127.0.0.1:4010"   dashboard_addr = "127.0.0.1:4011"
+# ingest_every = "5m"              ingest_args = ["-regime=metered"]
+```
+
+(`[services]` at the top level sets defaults; a profile's list replaces the
+default list.) `pitf config show` prints the merged settings, with values
+of key/secret/token/dsn flags masked.
+
+The router agent serves `/.well-known/opencode` by default, so OpenCode
+pointed at it (`opencode auth login http://127.0.0.1:4010`) finds its
+provider: provider id `llm`, base URL `http://127.0.0.1:4010/v1` (the
+IPv4 loopback: the agent does not listen on `::1`, where `localhost` may
+resolve). Override with `router_args = ["-wellknown-provider-id=work"]`; an
+empty id turns it off.
+
 Upstream keys (the env vars models.yaml's `api_key:` names) go in an env
 file: `--router-env-file PATH` (repeatable), defaulting to
 `~/.config/llm-router/router.env` when it exists. Only the router agent gets

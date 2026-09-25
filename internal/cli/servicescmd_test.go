@@ -228,3 +228,107 @@ func TestGlobalEnvFileBeforeAndAfterCommand(t *testing.T) {
 		t.Fatalf("after the command: %q", os.Getenv("PITF_T_KEY"))
 	}
 }
+
+func TestServicesInstallFromConfigAndWellKnownDefault(t *testing.T) {
+	dirs, _ := withFakeHost(t)
+	home, _ := os.UserHomeDir()
+	envFile := filepath.Join(home, "keys.env")
+	if err := os.WriteFile(envFile, []byte("K=v\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := os.Getenv("PITF_CONFIG")
+	if err := os.WriteFile(cfg, []byte(`[profiles.work.router]
+url = "http://127.0.0.1:4010"
+
+[profiles.work.services]
+models_yaml = "~/work-models.yaml"
+router_env_files = ["~/keys.env"]
+router_args = ["-log-format=text", "-api-keys", "sk-hidden"]
+ingest_every = "2m"
+ingest_args = ["-regime=metered"]
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := runPitf(t, "--profile", "work", "services", "install")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if !strings.Contains(out, "settings  [services] / [profiles.work.services] in "+cfg) {
+		t.Errorf("output:\n%s", out)
+	}
+	read := func(name string) string {
+		b, _ := os.ReadFile(dirs.PlistPath(name))
+		return string(b)
+	}
+	router := read("router")
+	args := plistArgs(router)
+	for _, want := range [][]string{
+		{"--env-file", envFile, "router", "serve", "-models-yaml", filepath.Join(home, "work-models.yaml")},
+		{"-wellknown-provider-id=llm", "-wellknown-base-url=http://127.0.0.1:4010/v1", "-log-format=text", "-api-keys", "sk-hidden"},
+	} {
+		if !containsSeq(args, want) {
+			t.Fatalf("router args %q\nwant in order %q", args, want)
+		}
+	}
+	if ingest := read("ingest"); !strings.Contains(ingest, "<integer>120</integer>") || !strings.Contains(ingest, "-regime=metered") {
+		t.Errorf("ingest plist:\n%s", ingest)
+	}
+
+	// A bare re-run reproduces it exactly: nothing reloads.
+	out, err = runPitf(t, "--profile", "work", "services", "install")
+	if err != nil || strings.Count(out, "unchanged") != 4 {
+		t.Fatalf("re-run should change nothing: %v\n%s", err, out)
+	}
+
+	// Flags: scalars override, lists append; a typed well-known id wins
+	// over the default because it comes later.
+	out, err = runPitf(t, "--profile", "work", "services", "install", "--router-addr", "127.0.0.1:4020",
+		"--router-arg=-wellknown-provider-id=work", "--ingest-every", "1m")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	args = plistArgs(read("router"))
+	if !containsSeq(args, []string{"-addr", "127.0.0.1:4020"}) ||
+		!containsSeq(args, []string{"-wellknown-base-url=http://127.0.0.1:4020/v1", "-log-format=text", "-api-keys", "sk-hidden", "-wellknown-provider-id=work"}) {
+		t.Fatalf("router args %q", args)
+	}
+	if !strings.Contains(read("ingest"), "<integer>60</integer>") {
+		t.Error("--ingest-every should override the config")
+	}
+
+	show, err := runPitf(t, "--profile", "work", "config", "show")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(show, "router_args = -log-format=text -api-keys …") || strings.Contains(show, "sk-hidden") {
+		t.Fatalf("config show:\n%s", show)
+	}
+}
+
+func plistArgs(plist string) []string {
+	start := strings.Index(plist, "<array>")
+	end := strings.Index(plist, "</array>")
+	var out []string
+	for _, line := range strings.Split(plist[start:end], "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "<string>") {
+			out = append(out, strings.TrimSuffix(strings.TrimPrefix(line, "<string>"), "</string>"))
+		}
+	}
+	return out
+}
+
+// containsSeq reports whether want appears in args as a contiguous run.
+func containsSeq(args, want []string) bool {
+outer:
+	for i := 0; i+len(want) <= len(args); i++ {
+		for j := range want {
+			if args[i+j] != want[j] {
+				continue outer
+			}
+		}
+		return true
+	}
+	return false
+}

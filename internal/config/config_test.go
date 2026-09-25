@@ -264,3 +264,25 @@ func TestNousResolutionAndEnv(t *testing.T) {
 		}
 	}
 }
+
+func TestServicesMerge(t *testing.T) {
+	body := `
+[services]
+models_yaml = "/top.yaml"
+router_args = ["-log-format=text"]
+ingest_every = "5m"
+
+[profiles.work.services]
+models_yaml = "/work.yaml"
+router_args = []
+
+[profiles.home]
+`
+	w := mustResolve(t, body, Options{Profile: "work"}).Services
+	if w.ModelsYAML != "/work.yaml" || w.IngestEvery != "5m" || w.RouterArgs == nil || len(w.RouterArgs) != 0 {
+		t.Errorf("work = %+v (an empty profile list replaces the default)", w)
+	}
+	if h := mustResolve(t, body, Options{Profile: "home"}).Services; h.ModelsYAML != "/top.yaml" || len(h.RouterArgs) != 1 {
+		t.Errorf("home = %+v", h)
+	}
+}

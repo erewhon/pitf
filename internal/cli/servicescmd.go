@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -78,6 +79,12 @@ func newServicesInstallCmd(gf *globalFlags) *cobra.Command {
 			"EnvironmentVariables (upstream keys such as AWS_BEARER_TOKEN_BEDROCK)\n" +
 			"move into the pitf router agent, it is stopped, and its plist is moved\n" +
 			"to ~/Library/Application Support/pitf/replaced/ (not deleted).\n\n" +
+			"The router serves /.well-known/opencode by default (provider id\n" +
+			"\"llm\", base URL from the router address); override or disable with\n" +
+			"--router-arg=-wellknown-provider-id=<id> (empty turns it off).\n\n" +
+			"Settings come from [services] / [profiles.<name>.services] in the pitf\n" +
+			"config; flags override its scalars and append to its lists, so a bare\n" +
+			"install always reproduces the config.\n\n" +
 			"Upstream keys belong in --router-env-file (default\n" +
 			"~/.config/llm-router/router.env when present): the router agent loads it\n" +
 			"at each start via pitf --env-file, so they never land in a plist.\n\n" +
@@ -103,12 +110,15 @@ func newServicesInstallCmd(gf *globalFlags) *cobra.Command {
 
 func runInstall(cmd *cobra.Command, gf *globalFlags, f *installFlags) error {
 	out := cmd.OutOrStdout()
-	if err := dashboard.CheckLoopback(f.dashboardAddr); err != nil {
-		return fmt.Errorf("--dashboard-addr: %w", err)
-	}
 	r, err := config.Resolve(gf.options())
 	if err != nil {
 		return err
+	}
+	if err := applyServicesConfig(cmd, r, f); err != nil {
+		return err
+	}
+	if err := dashboard.CheckLoopback(f.dashboardAddr); err != nil {
+		return fmt.Errorf("dashboard address: %w", err)
 	}
 	m, err := hostManager(out)
 	if err != nil && !f.dryRun {
@@ -172,7 +182,10 @@ func runInstall(cmd *cobra.Command, gf *globalFlags, f *installFlags) error {
 		}
 		retire = &a
 	}
-	opts.RouterArgs = append(opts.RouterArgs, f.routerArgs...)
+	// Order is precedence: the router's flag parser keeps the last value, so
+	// the well-known defaults come first and anything adopted, configured or
+	// typed after them wins (`-wellknown-provider-id=` turns it off).
+	opts.RouterArgs = append(wellKnownDefaults(f.routerAddr), append(opts.RouterArgs, f.routerArgs...)...)
 	if opts.RouterEnvFiles, err = routerEnvFiles(out, f.envFiles); err != nil {
 		return err
 	}
@@ -277,6 +290,60 @@ func newServicesStartCmd() *cobra.Command {
 			}
 			return m.Up()
 		},
+	}
+}
+
+// applyServicesConfig fills install's options from [services] in the
+// config: a flag typed on the command line overrides a scalar and appends to
+// a list, so a bare `pitf services install` always reproduces the config.
+func applyServicesConfig(cmd *cobra.Command, r *config.Resolved, f *installFlags) error {
+	sv := r.Services
+	fl := cmd.Flags()
+	scalar := func(name string, dst *string, cfg string) {
+		if !fl.Changed(name) && cfg != "" {
+			*dst = config.ExpandHome(cfg)
+		}
+	}
+	scalar("models-yaml", &f.modelsYAML, sv.ModelsYAML)
+	scalar("router-addr", &f.routerAddr, sv.RouterAddr)
+	scalar("dashboard-addr", &f.dashboardAddr, sv.DashboardAddr)
+	if !fl.Changed("ingest-every") && sv.IngestEvery != "" {
+		d, err := time.ParseDuration(sv.IngestEvery)
+		if err != nil {
+			return fmt.Errorf("%s: services.ingest_every: %w", r.Path, err)
+		}
+		f.ingestEvery = d
+	}
+	f.routerArgs = append(append([]string(nil), sv.RouterArgs...), f.routerArgs...)
+	f.envFiles = append(append([]string(nil), sv.RouterEnvFiles...), f.envFiles...)
+	f.ingestArgs = append(append([]string(nil), sv.IngestArgs...), f.ingestArgs...)
+	if sv.ModelsYAML != "" || sv.RouterAddr != "" || sv.DashboardAddr != "" || sv.IngestEvery != "" ||
+		sv.RouterArgs != nil || sv.RouterEnvFiles != nil || sv.IngestArgs != nil {
+		where := "[services]"
+		if r.Profile != "" {
+			where = "[services] / [profiles." + r.Profile + ".services]"
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "settings  %s in %s\n", where, r.Path)
+	}
+	return nil
+}
+
+// wellKnownDefaults turns on the router's /.well-known/opencode for the
+// laptop stack: OpenCode there is pointed at this router, and an endpoint
+// that 404s makes OpenCode fail at startup. The base URL is the loopback
+// address the agent listens on (127.0.0.1, not localhost, which a client
+// may resolve to ::1 first).
+func wellKnownDefaults(routerAddr string) []string {
+	host, port, err := net.SplitHostPort(routerAddr)
+	if err != nil {
+		return nil
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" || host == "localhost" {
+		host = "127.0.0.1"
+	}
+	return []string{
+		"-wellknown-provider-id=" + services.DefaultWellKnownProvider,
+		"-wellknown-base-url=http://" + net.JoinHostPort(host, port) + "/v1",
 	}
 }
 
