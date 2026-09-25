@@ -218,6 +218,54 @@ localhost); anything else is refused. The page frames the running apps
 rather than mounting them, so it needs `pitf monitor` / `pitf tokens serve`
 up.
 
+## The laptop stack: `pitf services` and `pitf up` (macOS)
+
+On a laptop that runs its own router, two commands bring up everything:
+
+```
+pitf --profile work services install   # once; re-run after changing flags
+pitf up                                 # each working session
+```
+
+`services install` writes per-user launchd agents
+(`~/Library/LaunchAgents/org.erewhon.pitf.*.plist`) that start at login and
+restart if they exit:
+
+| agent | runs | where |
+|---|---|---|
+| router | `pitf router serve --dashboard -models-yaml … -addr 127.0.0.1:4010` | API :4010, dashboard :4011 |
+| tokens | `pitf tokens serve` | :8990 |
+| dashboard | `pitf dashboard` | :8960 |
+| ingest | `pitf tokens ingest`, every 5 minutes | (tokenator's UI only shows ingested data) |
+
+Each agent runs pitf itself, so it resolves the same config, key command
+and cross-link environment as an interactive run; an explicit `--profile`
+(or `PITF_PROFILE`) is baked in, otherwise they follow `default_profile`.
+Everything listens on loopback: a laptop router usually runs without
+`--api-keys`. `--models-yaml` defaults to `~/.config/llm-router/models.yaml`;
+`--router-arg` / `--ingest-arg` (repeatable) add flags, `--dry-run` prints the
+plists. Logs are in `~/Library/Logs/pitf/`.
+
+An existing launchd agent for the standalone `llm-router` is **adopted**: its
+flags (except `-addr` and the dashboard flags, which pitf now owns) and its
+`EnvironmentVariables` (upstream keys such as `AWS_BEARER_TOKEN_BEDROCK`)
+move into the pitf router agent, it is stopped, and its plist is moved to
+`~/Library/Application Support/pitf/replaced/`, never deleted. A legacy agent
+that runs the router through a shell script cannot be parsed; install stops
+and says so (move its flags to `--router-arg` and its secrets to the profile's
+`[env]`, then pass `--replace-legacy`).
+
+`pitf up` loads any agent that is stopped, waits for the router's `/health`,
+prints the status, then runs agent-monitor in the terminal (a TUI, so not an
+agent; arguments after `--` go to it). `--no-monitor` stops after the status.
+
+```
+pitf services status            # launchd state + whether each URL answers
+pitf services restart router    # after editing models.yaml
+pitf services stop | start      # stop everything / bring it back
+pitf services uninstall         # remove the agents (logs and a replaced plist stay)
+```
+
 ## Installing
 
 ```
@@ -261,5 +309,6 @@ darwin/linux archives and updates `Formula/pitf.rb` in `erewhon/homebrew-tap`
 cmd/pitf/          main: signal context, version stamp, exit codes
 internal/cli/      root command, external lookup and dispatch
 internal/dashboard/ pitf dashboard: the tabbed page and its frame targets
+internal/services/  pitf services / up: launchd agents for the laptop stack
 contrib/wrappers/  pitf-* shims for the Python tools
 ```
