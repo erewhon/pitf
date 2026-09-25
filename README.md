@@ -246,6 +246,17 @@ Everything listens on loopback: a laptop router usually runs without
 `--router-arg` / `--ingest-arg` (repeatable) add flags, `--dry-run` prints the
 plists. Logs are in `~/Library/Logs/pitf/`.
 
+Upstream keys (the env vars models.yaml's `api_key:` names) go in an env
+file: `--router-env-file PATH` (repeatable), defaulting to
+`~/.config/llm-router/router.env` when it exists. Only the router agent gets
+it, as `pitf --env-file PATH router serve …`, so the keys stay in that file
+(read at every start; `chmod 600` it), never in a plist. Rotate a key by
+editing the file and running `pitf services restart router`. The file is
+dotenv/systemd style: `KEY=VALUE` lines, `#` comments, optional `export`,
+quoted values. The same `--env-file` works on any pitf command, e.g.
+`pitf --env-file ~/.config/llm-router/router.env router serve …` in a
+terminal.
+
 An existing launchd agent for the standalone `llm-router` is **adopted**: its
 flags (except `-addr` and the dashboard flags, which pitf now owns) and its
 `EnvironmentVariables` (upstream keys such as `AWS_BEARER_TOKEN_BEDROCK`)

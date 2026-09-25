@@ -38,6 +38,7 @@ type installFlags struct {
 	routerAddr    string
 	dashboardAddr string
 	routerArgs    []string
+	envFiles      []string
 	ingestArgs    []string
 	ingestEvery   time.Duration
 	replaceLegacy bool
@@ -77,6 +78,9 @@ func newServicesInstallCmd(gf *globalFlags) *cobra.Command {
 			"EnvironmentVariables (upstream keys such as AWS_BEARER_TOKEN_BEDROCK)\n" +
 			"move into the pitf router agent, it is stopped, and its plist is moved\n" +
 			"to ~/Library/Application Support/pitf/replaced/ (not deleted).\n\n" +
+			"Upstream keys belong in --router-env-file (default\n" +
+			"~/.config/llm-router/router.env when present): the router agent loads it\n" +
+			"at each start via pitf --env-file, so they never land in a plist.\n\n" +
 			"The config's profile is baked in only when chosen explicitly (--profile\n" +
 			"or PITF_PROFILE); otherwise the agents follow default_profile.",
 		Args: cobra.NoArgs,
@@ -89,6 +93,7 @@ func newServicesInstallCmd(gf *globalFlags) *cobra.Command {
 	fl.StringVar(&f.routerAddr, "router-addr", services.DefaultRouterAddr, "router listen address")
 	fl.StringVar(&f.dashboardAddr, "dashboard-addr", services.DefaultDashboardAddr, "router dashboard listen address (keep it loopback: no auth)")
 	fl.StringArrayVar(&f.routerArgs, "router-arg", nil, "extra flag for `pitf router serve` (repeatable), e.g. --router-arg=-log-format=text")
+	fl.StringArrayVar(&f.envFiles, "router-env-file", nil, "KEY=VALUE file the router agent loads at each start, for upstream keys (repeatable; default ~/.config/llm-router/router.env when it exists)")
 	fl.StringArrayVar(&f.ingestArgs, "ingest-arg", nil, "extra flag for `pitf tokens ingest` (repeatable), e.g. --ingest-arg=-regime=metered")
 	fl.DurationVar(&f.ingestEvery, "ingest-every", services.DefaultIngestEvery, "how often tokenator ingests new session data")
 	fl.BoolVar(&f.replaceLegacy, "replace-legacy", false, "stop and move aside a legacy router agent even when its flags cannot be adopted (shell wrapper)")
@@ -168,6 +173,9 @@ func runInstall(cmd *cobra.Command, gf *globalFlags, f *installFlags) error {
 		retire = &a
 	}
 	opts.RouterArgs = append(opts.RouterArgs, f.routerArgs...)
+	if opts.RouterEnvFiles, err = routerEnvFiles(out, f.envFiles); err != nil {
+		return err
+	}
 	if opts.ModelsYAML == "" {
 		opts.ModelsYAML = defaultModelsYAML()
 	}
@@ -271,6 +279,42 @@ func newServicesStartCmd() *cobra.Command {
 		},
 	}
 }
+
+// routerEnvFiles resolves --router-env-file to absolute paths (launchd
+// expands nothing) and checks each parses now, not at the agent's first
+// start. With none given, the conventional router.env is picked up.
+func routerEnvFiles(out io.Writer, given []string) ([]string, error) {
+	if len(given) == 0 {
+		def := config.ExpandHome(defaultRouterEnvFile)
+		if !fileExists(def) {
+			return nil, nil
+		}
+		given = []string{def}
+	}
+	var paths []string
+	for _, p := range given {
+		abs, err := filepath.Abs(config.ExpandHome(p))
+		if err != nil {
+			return nil, err
+		}
+		vars, err := config.ReadEnvFile(abs)
+		if err != nil {
+			return nil, fmt.Errorf("--router-env-file: %w", err)
+		}
+		names := make([]string, 0, len(vars))
+		for _, v := range vars {
+			names = append(names, v.Key)
+		}
+		fmt.Fprintf(out, "env file  %s (%s)\n", abs, strings.Join(names, ", "))
+		if info, err := os.Stat(abs); err == nil && info.Mode().Perm()&0o077 != 0 {
+			fmt.Fprintf(out, "          warning: %s is readable by others (chmod 600 it)\n", abs)
+		}
+		paths = append(paths, abs)
+	}
+	return paths, nil
+}
+
+const defaultRouterEnvFile = "~/.config/llm-router/router.env"
 
 // installedSpecs rebuilds the specs for status probes, taking the router's
 // listen address from its installed plist so a custom --router-addr is

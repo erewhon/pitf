@@ -60,6 +60,10 @@ type Options struct {
 	DashboardAddr string
 	RouterArgs    []string // extra router flags (after adoption)
 	RouterEnv     map[string]string
+	// RouterEnvFiles are passed as pitf --env-file to the router agent only,
+	// so upstream keys stay in their file (read at each start), not in the
+	// plist, and never reach the other agents.
+	RouterEnvFiles []string
 
 	IngestEvery time.Duration
 	IngestArgs  []string
@@ -96,8 +100,12 @@ func Plan(o Options) []Spec {
 		return m
 	}
 
-	router := with("router", "serve", "-models-yaml", o.ModelsYAML, "-addr", o.RouterAddr,
-		"-dashboard", "-dashboard-addr", o.DashboardAddr)
+	var envFiles []string
+	for _, f := range o.RouterEnvFiles {
+		envFiles = append(envFiles, "--env-file", f)
+	}
+	router := with(append(envFiles, "router", "serve", "-models-yaml", o.ModelsYAML, "-addr", o.RouterAddr,
+		"-dashboard", "-dashboard-addr", o.DashboardAddr)...)
 	router = append(router, o.RouterArgs...)
 
 	dashEnv := map[string]string{}

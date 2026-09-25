@@ -48,6 +48,9 @@ func Main(ctx context.Context, version string, args []string) error {
 	pre.SetOutput(io.Discard)
 	addGlobalFlags(pre, gf)
 	_ = pre.Parse(args)
+	if err := gf.loadEnvFiles(); err != nil {
+		return err
+	}
 	if m, rest, ok := findMount(pre.Args()); ok {
 		return runMount(ctx, m, version, gf, rest)
 	}
@@ -71,6 +74,7 @@ func Main(ctx context.Context, version string, args []string) error {
 func addGlobalFlags(fs *pflag.FlagSet, gf *globalFlags) {
 	fs.StringVar(&gf.profile, "profile", "", "config profile to use (overrides PITF_PROFILE and default_profile)")
 	fs.StringVar(&gf.routerURL, "router-url", "", "router base URL (overrides PITF_ROUTER_URL and the profile)")
+	fs.StringArrayVar(&gf.envFiles, "env-file", nil, "KEY=VALUE file loaded into the environment first (repeatable), e.g. upstream keys for `pitf router serve`")
 }
 
 // NewRoot builds the cobra root with every built-in subcommand attached.
@@ -96,6 +100,9 @@ func NewRoot(version string, gf *globalFlags) *cobra.Command {
 		// Root accepts arbitrary args so cobra defers unknown-command handling
 		// to RunE instead of failing in its legacy validator.
 		Args: cobra.ArbitraryArgs,
+		PersistentPreRunE: func(*cobra.Command, []string) error {
+			return gf.loadEnvFiles()
+		},
 	}
 	root.SetVersionTemplate("pitf {{.Version}}\n")
 

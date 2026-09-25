@@ -57,6 +57,15 @@ func TestPlanArgs(t *testing.T) {
 		t.Fatalf("router url %s", specs[0].URL)
 	}
 
+	o.RouterEnvFiles = []string{"/Users/me/.config/llm-router/router.env"}
+	if got := Plan(o)[0].Args[:6]; !reflect.DeepEqual(got, []string{"/opt/homebrew/bin/pitf", "--profile", "work",
+		"--env-file", "/Users/me/.config/llm-router/router.env", "router"}) {
+		t.Fatalf("env-file must be a pitf flag before the mount: %q", got)
+	}
+	if got := Plan(o)[1].Args; strings.Contains(strings.Join(got, " "), "env-file") {
+		t.Fatalf("env file leaked to tokens: %q", got)
+	}
+
 	o.Profile = ""
 	if got := Plan(o)[1].Args; !reflect.DeepEqual(got, []string{"/opt/homebrew/bin/pitf", "tokens", "serve"}) {
 		t.Fatalf("no-profile tokens args %q", got)

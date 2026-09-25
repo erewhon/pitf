@@ -46,6 +46,7 @@ func withFakeHost(t *testing.T) (services.Dirs, *cliLaunchd) {
 		t.Fatal(err)
 	}
 	t.Setenv("PITF_CONFIG", cfg)
+	t.Setenv("HOME", root) // no real ~/.config/llm-router/router.env
 	t.Setenv("PITF_PROFILE", "")
 	t.Setenv("PITF_DASHBOARD_URL", "")
 	return dirs, l
@@ -170,5 +171,60 @@ func TestUpNoMonitor(t *testing.T) {
 	}
 	if len(l.loaded) != 4 || !strings.Contains(out, "router    started") || !strings.Contains(out, "✓ http://127.0.0.1:4010/health") {
 		t.Fatalf("up:\n%s", out)
+	}
+}
+
+func TestServicesInstallRouterEnvFile(t *testing.T) {
+	dirs, _ := withFakeHost(t)
+	home, _ := os.UserHomeDir()
+	envDir := filepath.Join(home, ".config", "llm-router")
+	if err := os.MkdirAll(envDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	def := filepath.Join(envDir, "router.env")
+	if err := os.WriteFile(def, []byte("LOCAL_KEY=s3cret\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := runPitf(t, "--profile", "work", "services", "install")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if !strings.Contains(out, "env file  "+def+" (LOCAL_KEY)") || !strings.Contains(out, "readable by others") || strings.Contains(out, "s3cret") {
+		t.Fatalf("install output:\n%s", out)
+	}
+	router, _ := os.ReadFile(dirs.PlistPath("router"))
+	if !strings.Contains(string(router), "<string>--env-file</string>\n\t\t<string>"+def+"</string>\n\t\t<string>router</string>") ||
+		strings.Contains(string(router), "s3cret") {
+		t.Fatalf("router plist:\n%s", router)
+	}
+
+	bad := filepath.Join(envDir, "bad.env")
+	if err := os.WriteFile(bad, []byte("not a line\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runPitf(t, "services", "install", "--router-env-file", bad); err == nil || !strings.Contains(err.Error(), "bad.env:1") {
+		t.Fatalf("bad env file: %v", err)
+	}
+}
+
+func TestGlobalEnvFileBeforeAndAfterCommand(t *testing.T) {
+	withFakeHost(t)
+	t.Setenv("PITF_T_KEY", "")
+	f := filepath.Join(t.TempDir(), "x.env")
+	if err := os.WriteFile(f, []byte("PITF_T_KEY=from-file\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := Main(context.Background(), "test", []string{"--env-file", f, "config", "path"}); err != nil {
+		t.Fatal(err)
+	}
+	if os.Getenv("PITF_T_KEY") != "from-file" {
+		t.Fatalf("before the command: %q", os.Getenv("PITF_T_KEY"))
+	}
+	os.Setenv("PITF_T_KEY", "")
+	if err := Main(context.Background(), "test", []string{"config", "path", "--env-file", f}); err != nil {
+		t.Fatal(err)
+	}
+	if os.Getenv("PITF_T_KEY") != "from-file" {
+		t.Fatalf("after the command: %q", os.Getenv("PITF_T_KEY"))
 	}
 }

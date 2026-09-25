@@ -18,6 +18,21 @@ import (
 type globalFlags struct {
 	profile   string
 	routerURL string
+	envFiles  []string
+	envLoaded int // how many of envFiles are already in the process
+}
+
+// loadEnvFiles applies any --env-file not yet loaded. Called from both
+// parses; the second only adds files named after the subcommand.
+func (g *globalFlags) loadEnvFiles() error {
+	if g.envLoaded >= len(g.envFiles) {
+		return nil
+	}
+	if err := config.LoadEnvFiles(g.envFiles[g.envLoaded:]); err != nil {
+		return err
+	}
+	g.envLoaded = len(g.envFiles)
+	return nil
 }
 
 func (g *globalFlags) options() config.Options {
