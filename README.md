@@ -350,6 +350,16 @@ Releases: tag `vX.Y.Z` on GitHub and the release workflow builds
 darwin/linux archives and updates `Formula/pitf.rb` in `erewhon/homebrew-tap`
 (needs the `HOMEBREW_TAP_GITHUB_TOKEN` repo secret).
 
+## Pi
+
+`contrib/pi/router-session.ts` is a Pi extension that sends the Pi session
+id to the router as `X-Session-Id` on every provider request, so the
+router's request log, tokenator's gateway pairing and `pitf session` can
+attribute Pi traffic. Install by symlinking it into
+`~/.pi/agent/extensions/`; nothing else is needed (the router already reads
+that header). tokenator does not ingest Pi sessions yet, so the rows carry
+an id but pair with nothing.
+
 ## Layout
 
 ```
@@ -357,4 +367,5 @@ cmd/pitf/          main: signal context, version stamp, exit codes
 internal/cli/      root command, mounts (Go and Python-via-uv), external dispatch, doctor
 internal/dashboard/ pitf dashboard: the tabbed page and its frame targets
 internal/services/  pitf services / up: launchd agents for the laptop stack
+contrib/pi/        Pi extension: X-Session-Id on router requests
 ```
