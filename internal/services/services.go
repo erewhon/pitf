@@ -1,7 +1,10 @@
-// Package services runs the laptop stack (router, tokenator UI, the pitf
-// dashboard, a periodic tokenator ingest) as per-user launchd agents, each
-// one a `pitf …` command line so it resolves the same config, keys and
-// cross-link environment as an interactive run.
+// Package services runs the laptop stack (router with its dashboard,
+// tokenator UI, a periodic tokenator ingest) as per-user launchd agents,
+// each one a `pitf …` command line so it resolves the same config, keys and
+// cross-link environment as an interactive run. The router dashboard is
+// the one web page: it proxies tokenator and agent-monitor (see
+// llm-router-go --dashboard-tokens-url / --dashboard-monitor-url, wired
+// through the PITF_*_URL variables pitf exports).
 //
 // The pure half (specs, plist rendering, legacy-plist adoption) is
 // platform-neutral and tested anywhere; the launchctl half only works on
@@ -36,7 +39,7 @@ const (
 
 // Spec is one launchd agent.
 type Spec struct {
-	Name string   // short name: router, tokens, dashboard, ingest
+	Name string   // short name: router, tokens, ingest
 	Args []string // full argv, argv[0] is the pitf binary
 	Env  map[string]string
 	// KeepAlive restarts a long-running server whenever it exits. A
@@ -51,7 +54,13 @@ type Spec struct {
 func Label(name string) string { return LabelPrefix + name }
 
 // Names lists the services in the order they are installed and started.
-var Names = []string{"router", "tokens", "dashboard", "ingest"}
+var Names = []string{"router", "tokens", "ingest"}
+
+// Retired are agents earlier pitf releases installed and this one no longer
+// does; install and uninstall remove them when present. "dashboard" was
+// `pitf dashboard`, the loopback tab shell that framed the three tools —
+// superseded 2026-09-26 by the router dashboard proxying them itself.
+var Retired = []string{"dashboard"}
 
 // Options are what `pitf services install` decides.
 type Options struct {
@@ -71,10 +80,6 @@ type Options struct {
 	IngestEvery time.Duration
 	IngestArgs  []string
 
-	// DashboardURL, when set, is exported to the pitf dashboard agent as
-	// PITF_DASHBOARD_URL, for configs that name no [tools] dashboard_url.
-	DashboardURL string
-
 	Path string // PATH for every agent; launchd's default is too bare
 }
 
@@ -82,7 +87,7 @@ type Options struct {
 // so api_key_cmd (security, op, pass) and tmux resolve under launchd.
 const DefaultPath = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
-// Plan turns the options into the four agents.
+// Plan turns the options into the three agents.
 func Plan(o Options) []Spec {
 	base := []string{o.Pitf}
 	if o.Profile != "" {
@@ -111,10 +116,6 @@ func Plan(o Options) []Spec {
 		"-dashboard", "-dashboard-addr", o.DashboardAddr)...)
 	router = append(router, o.RouterArgs...)
 
-	dashEnv := map[string]string{}
-	if o.DashboardURL != "" {
-		dashEnv["PITF_DASHBOARD_URL"] = o.DashboardURL
-	}
 	every := o.IngestEvery
 	if every <= 0 {
 		every = DefaultIngestEvery
@@ -124,8 +125,6 @@ func Plan(o Options) []Spec {
 			URL: "http://" + o.RouterAddr + "/health"},
 		{Name: "tokens", Args: with("tokens", "serve"), Env: env(nil), KeepAlive: true,
 			URL: "http://127.0.0.1:8990/"},
-		{Name: "dashboard", Args: with("dashboard"), Env: env(dashEnv), KeepAlive: true,
-			URL: "http://127.0.0.1:8960/"},
 		{Name: "ingest", Args: append(with("tokens", "ingest"), o.IngestArgs...), Env: env(nil),
 			Interval: every},
 	}

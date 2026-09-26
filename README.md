@@ -13,7 +13,6 @@ pitf monitor …      # agent-monitor        (compiled in)
 pitf tokens …       # tokenator            (compiled in)
 pitf router serve|node-agent|gpu-exporter|tool-proxy|say …
                     # llm-router-go cmds   (compiled in)
-pitf dashboard      # one local page over the three tool UIs (built in)
 pitf bench sweep …  # pp/tg throughput sweep (built in, Go)
 pitf qual …         # llm-router-qual      (Python, run through uv in its checkout)
 pitf forge …        # forge                (Python, run through uv in its checkout)
@@ -188,42 +187,23 @@ builds from 2026-09-23 or later. In the UIs themselves,
 `agent-monitor --tokens-url` and `tokenator serve --monitor-url` add the
 reciprocal links.
 
-### One page: `pitf dashboard`
+### One page: the router dashboard
 
-```
-pitf dashboard                       # http://127.0.0.1:8960/
-pitf dashboard --open --listen 127.0.0.1:9000
-```
+The router dashboard is the web UI for the whole stack. It reverse-proxies
+tokenator at `/tokens/` and agent-monitor at `/monitor/` (llm-router-go
+`--dashboard-tokens-url` / `--dashboard-monitor-url`), so its **Tokens** and
+**Agents** tabs work behind the front door's SSO at home and on a laptop
+router alike, with one login, one theme and one deep-link grammar
+(`#requests?session=…`, `#tokens?session=…`, `#tokens?model=…`,
+`#catalog?model=…`). `pitf router serve --dashboard` wires both proxies by
+itself: pitf exports `PITF_TOKENS_URL` and `PITF_MONITOR_URL` and the router
+falls back to them. `pitf session` / `pitf model` print the dashboard links
+beside the direct tokenator ones; `pitf doctor` reports whether each proxy
+is wired.
 
-One local page with a tab per tool. **Agents** and **Sessions** frame the
-running agent-monitor board and tokenator; type a session id or model alias
-in the header and the Sessions tab opens on it (the same keys as `pitf
-session` / `pitf model`, carried in the page URL). A tool that is not
-configured or not running shows a notice in its tab instead of a frame.
-
-**Router** depends on where the dashboard lives. On loopback (the router's
-default `--dashboard-addr 127.0.0.1:4011`, e.g. a work laptop running its own
-router) it has no auth and is framed like the others, following the session
-or model too. Anywhere else it is a panel of links: behind the front door's
-single sign-on, the SSO cookie is not sent to a frame on a loopback page and
-the sign-in page refuses framing, so its links (requests for the session,
-catalog for the model, home) open a new browser tab.
-
-```toml
-[profiles.work.tools]
-dashboard_url = "http://127.0.0.1:4011"   # framed
-```
-
-A router started with `pitf router serve --dashboard` also gets an **Agents**
-tab in its own dashboard: pitf exports `PITF_MONITOR_URL`, the router reads
-it as `--dashboard-monitor-url`, and the tab lists agent-monitor's agents
-with each session linked to the dashboard's Requests view. That makes the
-router dashboard alone enough on a laptop that runs both.
-
-The page has no auth, so `--listen` must be loopback (127.0.0.1, ::1 or
-localhost); anything else is refused. The page frames the running apps
-rather than mounting them, so it needs `pitf monitor` / `pitf tokens serve`
-up.
+`pitf dashboard` (a loopback page that framed the three tools) is retired;
+the command prints the router dashboard's address for one release and
+`pitf services install` removes the old agent.
 
 ## The laptop stack: `pitf services` and `pitf up` (macOS)
 
@@ -242,7 +222,6 @@ restart if they exit:
 |---|---|---|
 | router | `pitf router serve --dashboard -models-yaml … -addr 127.0.0.1:4010` | API :4010, dashboard :4011 |
 | tokens | `pitf tokens serve` | :8990 |
-| dashboard | `pitf dashboard` | :8960 |
 | ingest | `pitf tokens ingest`, every 5 minutes | (tokenator's UI only shows ingested data) |
 
 Each agent runs pitf itself, so it resolves the same config, key command
@@ -297,7 +276,8 @@ and says so (move its flags to `--router-arg` and its secrets to the profile's
 `[env]`, then pass `--replace-legacy`).
 
 `pitf up` loads any agent that is stopped, waits for the router's `/health`,
-prints the status, then runs agent-monitor in the terminal (a TUI, so not an
+prints the status, opens the router dashboard in the browser (`--no-open` to
+skip), then runs agent-monitor in the terminal (a TUI, so not an
 agent; arguments after `--` go to it). `--no-monitor` stops after the status.
 
 ```
@@ -365,7 +345,6 @@ an id but pair with nothing.
 ```
 cmd/pitf/          main: signal context, version stamp, exit codes
 internal/cli/      root command, mounts (Go and Python-via-uv), external dispatch, doctor
-internal/dashboard/ pitf dashboard: the tabbed page and its frame targets
 internal/services/  pitf services / up: launchd agents for the laptop stack
 contrib/pi/        Pi extension: X-Session-Id on router requests
 ```

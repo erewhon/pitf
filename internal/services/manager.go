@@ -34,6 +34,9 @@ func (m Manager) Install(specs []Spec, legacy *Agent) error {
 			return err
 		}
 	}
+	if err := m.removeRetired(); err != nil {
+		return err
+	}
 	for _, s := range specs {
 		path := m.Dirs.PlistPath(s.Name)
 		want := Plist(s, m.Dirs.Logs)
@@ -88,10 +91,29 @@ func (m Manager) retire(a Agent) error {
 	return nil
 }
 
-// Uninstall boots out and removes every pitf agent. Logs and any replaced
-// legacy plists stay.
+// removeRetired boots out and deletes agents from earlier pitf releases
+// that this one no longer installs (services.Retired).
+func (m Manager) removeRetired() error {
+	for _, name := range Retired {
+		path := m.Dirs.PlistPath(name)
+		if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err := m.L.Bootout(Label(name)); err != nil {
+			return err
+		}
+		if err := os.Remove(path); err != nil {
+			return err
+		}
+		fmt.Fprintf(m.Out, "%-9s retired   (the router dashboard is the one page now)\n", name)
+	}
+	return nil
+}
+
+// Uninstall boots out and removes every pitf agent, retired ones included.
+// Logs and any replaced legacy plists stay.
 func (m Manager) Uninstall() error {
-	for _, name := range Names {
+	for _, name := range append(append([]string(nil), Names...), Retired...) {
 		path := m.Dirs.PlistPath(name)
 		if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
 			continue

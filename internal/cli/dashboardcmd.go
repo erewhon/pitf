@@ -2,58 +2,47 @@ package cli
 
 import (
 	"fmt"
-	"net"
-	"net/http"
-	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/erewhon/pitf/internal/config"
-	"github.com/erewhon/pitf/internal/dashboard"
+	"github.com/erewhon/pitf/internal/services"
 )
 
+// `pitf dashboard` was a loopback tab shell that framed agent-monitor,
+// tokenator and the router dashboard. Retired 2026-09-26: the router
+// dashboard proxies the other two itself (/monitor/, /tokens/) and is the
+// one page, at home and on a laptop. This stub stays for one release so an
+// old habit or script gets the address instead of "unknown command".
 func newDashboardCmd(gf *globalFlags) *cobra.Command {
-	var listen string
 	var open bool
 	cmd := &cobra.Command{
-		Use:   "dashboard",
-		Short: "Serve one local page over agent-monitor, tokenator and the router dashboard",
-		Long: "Serves a page on loopback with a tab per tool UI (agent-monitor,\n" +
-			"tokenator, the router dashboard), framed from [tools] in the config.\n" +
-			"A session id or model alias typed in the header points the tokens and\n" +
-			"router tabs at that session or model. The page has no auth, so it only\n" +
-			"listens on loopback. A router dashboard on loopback is framed too; a\n" +
-			"remote one (behind SSO, which refuses framing) is a tab of links that\n" +
-			"open in a new browser tab.",
-		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := dashboard.CheckLoopback(listen); err != nil {
-				return err
-			}
+		Use:    "dashboard",
+		Short:  "Retired: the router dashboard is the one page (prints its address)",
+		Hidden: true,
+		Args:   cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			r, err := config.Resolve(gf.options())
 			if err != nil {
 				return err
 			}
-			srv := &dashboard.Server{Links: linksFor(r), Probe: dashboard.HTTPProbe}
-			ln, err := net.Listen("tcp", listen)
-			if err != nil {
-				return err
-			}
-			url := "http://" + ln.Addr().String() + "/"
-			fmt.Fprintf(cmd.OutOrStdout(), "pitf dashboard on %s\n", url)
+			u := dashboardHome(r, services.DefaultDashboardAddr)
+			fmt.Fprintf(cmd.OutOrStdout(), "pitf dashboard is retired: the router dashboard proxies tokenator (/tokens/) and agent-monitor (/monitor/) itself.\n%s\n", u)
 			if open {
-				if err := openInBrowser(url); err != nil {
-					fmt.Fprintf(cmd.ErrOrStderr(), "open: %v\n", err)
-				}
+				return openInBrowser(u)
 			}
-
-			// Ctrl-C ends the process (pitf sets no signal context); there is
-			// no state to flush.
-			hs := &http.Server{Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
-			return hs.Serve(ln)
+			return nil
 		},
 	}
-	cmd.Flags().StringVar(&listen, "listen", dashboard.DefaultListen, "loopback address to listen on")
-	cmd.Flags().BoolVar(&open, "open", false, "open the page in the browser")
+	cmd.Flags().BoolVar(&open, "open", false, "open the router dashboard in the browser")
 	return cmd
+}
+
+// dashboardHome is where the router dashboard lives for this config: the
+// profile's [tools].dashboard_url, else the laptop router's own listener.
+func dashboardHome(r *config.Resolved, dashboardAddr string) string {
+	if r.Tools.DashboardURL != "" {
+		return r.Tools.DashboardURL
+	}
+	return "http://" + dashboardAddr + "/"
 }

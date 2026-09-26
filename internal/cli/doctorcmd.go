@@ -116,9 +116,9 @@ func newDoctorCmd(version string, gf *globalFlags) *cobra.Command {
 
 func writeChecks(w io.Writer, checks []check) {
 	for _, c := range checks {
-		fmt.Fprintf(w, "%-5s %-11s %s\n", c.status, c.area, c.detail)
+		fmt.Fprintf(w, "%-5s %-12s %s\n", c.status, c.area, c.detail)
 		if c.hint != "" {
-			fmt.Fprintf(w, "%-5s %-11s → %s\n", "", "", c.hint)
+			fmt.Fprintf(w, "%-5s %-12s → %s\n", "", "", c.hint)
 		}
 	}
 }
@@ -154,6 +154,7 @@ func runDoctor(ctx context.Context, r *config.Resolved, env doctorEnv) []check {
 		add(statusInfo, "dashboard", "dashboard_url unset; pitf session / pitf model print no router links", "set [tools].dashboard_url to the router dashboard's public URL")
 	} else {
 		out = append(out, checkToolURL(ctx, env, "dashboard", strings.TrimRight(r.Tools.DashboardURL, "/")+"/", "check [tools].dashboard_url"))
+		out = append(out, checkDashProxies(ctx, env, r.Tools.DashboardURL)...)
 	}
 	if r.HasNous() {
 		out = append(out, checkToolURL(ctx, env, "nous", strings.TrimRight(r.NousURL, "/")+"/", "only `pitf bench import` needs it; check [nous].url"))
@@ -239,6 +240,38 @@ func checkRouter(ctx context.Context, r *config.Resolved, env doctorEnv) []check
 		out = append(out, check{statusWarn, "router.key", fmt.Sprintf("/v1/models failed: %v", err), ""})
 	default:
 		out = append(out, check{statusOK, "router.key", fmt.Sprintf("accepted (from %s); %d models listed", r.KeySource, len(models)), ""})
+	}
+	return out
+}
+
+// checkDashProxies asks the router dashboard whether it proxies tokenator
+// (/tokens/) and agent-monitor (/monitor/): the one page depends on both.
+// 404 is the router's own "not proxied" answer and names the flag; a 3xx
+// means a front door (SSO) answered before the router and the probe cannot
+// tell from here; anything else below 500 is wired.
+func checkDashProxies(ctx context.Context, env doctorEnv, dashboard string) []check {
+	if env.offline {
+		return nil
+	}
+	base := strings.TrimRight(dashboard, "/")
+	var out []check
+	for _, p := range []struct{ area, path, flag string }{
+		{"dash tokens", "/tokens/", "--dashboard-tokens-url (pitf exports PITF_TOKENS_URL)"},
+		{"dash monitor", "/monitor/api/agents", "--dashboard-monitor-url (pitf exports PITF_MONITOR_URL)"},
+	} {
+		st, err := probe(ctx, env.http, base+p.path, "")
+		switch {
+		case err != nil:
+			out = append(out, check{statusWarn, p.area, fmt.Sprintf("%s%s unreachable: %v", base, p.path, err), ""})
+		case st == http.StatusNotFound:
+			out = append(out, check{statusWarn, p.area, fmt.Sprintf("%s%s is not proxied (404)", base, p.path), "start the router with " + p.flag + " so the dashboard's tab works"})
+		case st >= 300 && st < 400:
+			out = append(out, check{statusInfo, p.area, fmt.Sprintf("%s%s answered %d from the front door (SSO); proxy state not visible from here", base, p.path, st), ""})
+		case st >= 500:
+			out = append(out, check{statusWarn, p.area, fmt.Sprintf("%s%s HTTP %d: the proxy is configured but its target is down", base, p.path, st), "start the tool (`pitf tokens serve` / `pitf monitor`) or fix the router's target URL"})
+		default:
+			out = append(out, check{statusOK, p.area, fmt.Sprintf("%s%s proxied (HTTP %d)", base, p.path, st), ""})
+		}
 	}
 	return out
 }

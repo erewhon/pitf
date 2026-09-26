@@ -14,7 +14,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/erewhon/pitf/internal/config"
-	"github.com/erewhon/pitf/internal/dashboard"
 	"github.com/erewhon/pitf/internal/services"
 )
 
@@ -28,7 +27,7 @@ var hostManager = func(out io.Writer) (services.Manager, error) {
 	if err != nil {
 		return services.Manager{}, err
 	}
-	return services.Manager{Dirs: dirs, L: l, Out: out, Probe: dashboard.HTTPProbe}, nil
+	return services.Manager{Dirs: dirs, L: l, Out: out, Probe: services.HTTPProbe}, nil
 }
 
 // readPlist is services.ReadPlist, swappable in tests.
@@ -49,11 +48,11 @@ type installFlags struct {
 func newServicesCmd(gf *globalFlags) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "services",
-		Short: "Run the router, tokenator, the dashboard and ingest as launchd agents (macOS)",
+		Short: "Run the router (with its dashboard), tokenator and ingest as launchd agents (macOS)",
 		Long: "Installs per-user launchd agents for the laptop stack:\n\n" +
-			"  router     pitf router serve --dashboard   (127.0.0.1:4010, dashboard :4011)\n" +
+			"  router     pitf router serve --dashboard   (127.0.0.1:4010, dashboard :4011 — the one page;\n" +
+			"             it proxies tokenator at /tokens/ and agent-monitor at /monitor/)\n" +
 			"  tokens     pitf tokens serve               (127.0.0.1:8990)\n" +
-			"  dashboard  pitf dashboard                  (127.0.0.1:8960)\n" +
 			"  ingest     pitf tokens ingest, every 5 minutes\n\n" +
 			"Each agent runs pitf itself, so it gets the same config, keys and\n" +
 			"cross-link environment as an interactive run. They start at login and\n" +
@@ -117,7 +116,7 @@ func runInstall(cmd *cobra.Command, gf *globalFlags, f *installFlags) error {
 	if err := applyServicesConfig(cmd, r, f); err != nil {
 		return err
 	}
-	if err := dashboard.CheckLoopback(f.dashboardAddr); err != nil {
+	if err := services.CheckLoopback(f.dashboardAddr); err != nil {
 		return fmt.Errorf("dashboard address: %w", err)
 	}
 	m, err := hostManager(out)
@@ -195,12 +194,11 @@ func runInstall(cmd *cobra.Command, gf *globalFlags, f *installFlags) error {
 	if _, err := os.Stat(opts.ModelsYAML); err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s: %v (the router agent will restart until it exists)\n", opts.ModelsYAML, err)
 	}
-	// The pitf dashboard frames the router dashboard only when it knows
-	// where it is; with no [tools] dashboard_url, point it at ours.
+	// `pitf up`, `pitf session` and `pitf model` all want to know where the
+	// router dashboard is; on a laptop that is the router agent's own.
 	if r.Tools.DashboardURL == "" {
-		opts.DashboardURL = "http://" + f.dashboardAddr
-		fmt.Fprintf(out, "note      no [tools] dashboard_url in %s; the dashboard agent uses %s.\n"+
-			"          Add it to the profile so `pitf session` / `pitf model` find it too.\n", r.Path, opts.DashboardURL)
+		fmt.Fprintf(out, "note      no [tools] dashboard_url in %s; `pitf up` opens http://%s/.\n"+
+			"          Add dashboard_url to the profile so `pitf session` / `pitf model` link there too.\n", r.Path, f.dashboardAddr)
 	}
 
 	specs := services.Plan(opts)
@@ -213,7 +211,8 @@ func runInstall(cmd *cobra.Command, gf *globalFlags, f *installFlags) error {
 	if err := m.Install(specs, retire); err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "\nlogs: %s\nNext: `pitf up` starts agent-monitor; the page is http://127.0.0.1:8960/\n", m.Dirs.Logs)
+	fmt.Fprintf(out, "\nlogs: %s\nNext: `pitf up` starts agent-monitor and opens the router dashboard at %s\n",
+		m.Dirs.Logs, dashboardHome(r, f.dashboardAddr))
 	return nil
 }
 
@@ -387,15 +386,27 @@ const defaultRouterEnvFile = "~/.config/llm-router/router.env"
 // listen address from its installed plist so a custom --router-addr is
 // probed where it actually listens.
 func installedSpecs(m services.Manager) []services.Spec {
+	return services.Plan(installedOptions(m))
+}
+
+// installedOptions reads the addresses back out of the installed router
+// agent (defaults when there is none).
+func installedOptions(m services.Manager) services.Options {
 	opts := services.Options{RouterAddr: services.DefaultRouterAddr, DashboardAddr: services.DefaultDashboardAddr}
 	if a, err := readPlist(m.Dirs.PlistPath("router")); err == nil {
 		for i, arg := range a.Args {
-			if arg == "-addr" && i+1 < len(a.Args) {
+			if i+1 >= len(a.Args) {
+				break
+			}
+			switch arg {
+			case "-addr":
 				opts.RouterAddr = a.Args[i+1]
+			case "-dashboard-addr":
+				opts.DashboardAddr = a.Args[i+1]
 			}
 		}
 	}
-	return services.Plan(opts)
+	return opts
 }
 
 // pitfPath is the binary the agents run. Homebrew's Cellar path changes on

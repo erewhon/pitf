@@ -106,9 +106,8 @@ func TestServicesInstallAdoptsLegacyRouter(t *testing.T) {
 			t.Errorf("router plist missing %q:\n%s", want, router)
 		}
 	}
-	dash, _ := os.ReadFile(dirs.PlistPath("dashboard"))
-	if !strings.Contains(string(dash), "<key>PITF_DASHBOARD_URL</key>\n\t\t<string>http://127.0.0.1:4011</string>") {
-		t.Errorf("dashboard plist:\n%s", dash)
+	if _, err := os.Stat(dirs.PlistPath("dashboard")); err == nil {
+		t.Error("the retired pitf dashboard agent must not be installed")
 	}
 	ingest, _ := os.ReadFile(dirs.PlistPath("ingest"))
 	if !strings.Contains(string(ingest), "<string>-regime=metered</string>") {
@@ -156,7 +155,7 @@ func TestServicesInstallRefusesShellWrapper(t *testing.T) {
 
 func TestUpNoMonitor(t *testing.T) {
 	_, l := withFakeHost(t)
-	if _, err := runPitf(t, "up", "--no-monitor"); err == nil || !strings.Contains(err.Error(), "services install") {
+	if _, err := runPitf(t, "up", "--no-monitor", "--no-open"); err == nil || !strings.Contains(err.Error(), "services install") {
 		t.Fatalf("up before install: %v", err)
 	}
 	if _, err := runPitf(t, "services", "install"); err != nil {
@@ -165,11 +164,12 @@ func TestUpNoMonitor(t *testing.T) {
 	if _, err := runPitf(t, "services", "stop"); err != nil {
 		t.Fatal(err)
 	}
-	out, err := runPitf(t, "up", "--no-monitor")
+	out, err := runPitf(t, "up", "--no-monitor", "--no-open")
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	if len(l.loaded) != 4 || !strings.Contains(out, "router    started") || !strings.Contains(out, "✓ http://127.0.0.1:4010/health") {
+	if len(l.loaded) != 3 || !strings.Contains(out, "router    started") || !strings.Contains(out, "✓ http://127.0.0.1:4010/health") ||
+		!strings.Contains(out, "dashboard http://127.0.0.1:4011/") {
 		t.Fatalf("up:\n%s", out)
 	}
 }
@@ -277,7 +277,7 @@ ingest_args = ["-regime=metered"]
 
 	// A bare re-run reproduces it exactly: nothing reloads.
 	out, err = runPitf(t, "--profile", "work", "services", "install")
-	if err != nil || strings.Count(out, "unchanged") != 4 {
+	if err != nil || strings.Count(out, "unchanged") != 3 {
 		t.Fatalf("re-run should change nothing: %v\n%s", err, out)
 	}
 

@@ -26,7 +26,6 @@ func TestPlanArgs(t *testing.T) {
 	o := testOpts()
 	o.RouterArgs = []string{"-log-format", "text"}
 	o.RouterEnv = map[string]string{"AWS_BEARER_TOKEN_BEDROCK": "k"}
-	o.DashboardURL = "http://127.0.0.1:4011"
 	specs := Plan(o)
 	var names []string
 	for _, s := range specs {
@@ -47,11 +46,13 @@ func TestPlanArgs(t *testing.T) {
 	if _, leaked := specs[1].Env["AWS_BEARER_TOKEN_BEDROCK"]; leaked {
 		t.Fatal("router secrets leaked into the tokens agent")
 	}
-	if specs[2].Env["PITF_DASHBOARD_URL"] != "http://127.0.0.1:4011" {
-		t.Fatalf("dashboard env %v", specs[2].Env)
+	if specs[2].Interval != DefaultIngestEvery || specs[2].KeepAlive {
+		t.Fatalf("ingest %+v", specs[2])
 	}
-	if specs[3].Interval != DefaultIngestEvery || specs[3].KeepAlive {
-		t.Fatalf("ingest %+v", specs[3])
+	for _, s := range specs {
+		if s.Name == "dashboard" {
+			t.Fatal("the pitf dashboard agent is retired and must not be planned")
+		}
 	}
 	if specs[0].URL != "http://127.0.0.1:4010/health" {
 		t.Fatalf("router url %s", specs[0].URL)
@@ -273,7 +274,7 @@ func TestInstallRetiresLegacyAndIsIdempotent(t *testing.T) {
 	if err := m.Install(specs, nil); err != nil {
 		t.Fatal(err)
 	}
-	if len(l.calls) != 0 || strings.Count(out.String(), "unchanged") != 4 {
+	if len(l.calls) != 0 || strings.Count(out.String(), "unchanged") != 3 {
 		t.Fatalf("re-install touched launchd: %v\n%s", l.calls, out)
 	}
 
@@ -306,7 +307,7 @@ func TestUpStopUninstall(t *testing.T) {
 	if err := m.Up(); err != nil {
 		t.Fatal(err)
 	}
-	if len(l.loaded) != 4 || strings.Count(out.String(), "started") != 4 {
+	if len(l.loaded) != 3 || strings.Count(out.String(), "started") != 3 {
 		t.Fatalf("up: %v\n%s", l.loaded, out)
 	}
 
@@ -335,5 +336,38 @@ func TestUpStopUninstall(t *testing.T) {
 	}
 	if len(m.Installed()) != 0 || len(l.loaded) != 0 {
 		t.Fatalf("uninstall left %v / %v", m.Installed(), l.loaded)
+	}
+}
+
+// An agent from an earlier release (the pitf dashboard) is booted out and
+// its plist removed on install, and again on uninstall if it reappears.
+func TestInstallRemovesRetiredDashboardAgent(t *testing.T) {
+	m, l, out := testManager(t)
+	if err := os.MkdirAll(m.Dirs.Agents, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	old := m.Dirs.PlistPath("dashboard")
+	if err := os.WriteFile(old, []byte("old dashboard agent"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	l.loaded[Label("dashboard")] = true
+	if err := m.Install(Plan(testOpts()), nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(old); !os.IsNotExist(err) {
+		t.Fatal("retired dashboard plist still present after install")
+	}
+	if l.loaded[Label("dashboard")] || !strings.Contains(out.String(), "dashboard retired") {
+		t.Fatalf("retired agent not booted out:\n%s", out)
+	}
+	if err := os.WriteFile(old, []byte("back"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	l.loaded[Label("dashboard")] = true
+	if err := m.Uninstall(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(old); !os.IsNotExist(err) {
+		t.Fatal("uninstall must remove a retired agent too")
 	}
 }

@@ -150,3 +150,37 @@ func TestDoctorRouterProbeAndKey(t *testing.T) {
 		t.Fatalf("down tool should warn with the hint: %+v", got)
 	}
 }
+
+// The dashboard's /tokens/ and /monitor/ proxies: 404 is the router saying
+// "not configured" (with the flag to fix it), 502 is a configured proxy
+// whose target is down, 200 is wired, a redirect is the SSO front door.
+func TestDoctorDashProxies(t *testing.T) {
+	dash := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/tokens/":
+			w.WriteHeader(200)
+		case "/monitor/api/agents":
+			w.WriteHeader(404)
+		}
+	}))
+	defer dash.Close()
+	cs := checkDashProxies(context.Background(), doctorEnv{http: dash.Client()}, dash.URL+"/")
+	if len(cs) != 2 {
+		t.Fatalf("want 2 checks, got %+v", cs)
+	}
+	if cs[0].status != statusOK || !strings.Contains(cs[0].detail, "proxied") {
+		t.Errorf("tokens proxied: %+v", cs[0])
+	}
+	if cs[1].status != statusWarn || !strings.Contains(cs[1].hint, "--dashboard-monitor-url") {
+		t.Errorf("monitor unproxied should warn with the flag: %+v", cs[1])
+	}
+	down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(502) }))
+	defer down.Close()
+	cs = checkDashProxies(context.Background(), doctorEnv{http: down.Client()}, down.URL)
+	if cs[0].status != statusWarn || !strings.Contains(cs[0].detail, "target is down") {
+		t.Errorf("502 should read as target down: %+v", cs[0])
+	}
+	if cs := checkDashProxies(context.Background(), doctorEnv{offline: true}, "http://x"); cs != nil {
+		t.Error("offline must skip the proxy probes")
+	}
+}
