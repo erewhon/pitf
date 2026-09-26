@@ -15,13 +15,13 @@ pitf router serve|node-agent|gpu-exporter|tool-proxy|say …
                     # llm-router-go cmds   (compiled in)
 pitf dashboard      # one local page over the three tool UIs (built in)
 pitf bench sweep …  # pp/tg throughput sweep (built in, Go)
-pitf bench-py …     # llm-router-bench     (external: legacy multi-target compare)
-pitf qual …         # llm-router-qual      (external: pitf-qual on PATH)
-pitf forge …        # forge                (external: pitf-forge on PATH)
-pitf meta …         # meta                 (external: pitf-meta on PATH)
+pitf qual …         # llm-router-qual      (Python, run through uv in its checkout)
+pitf forge …        # forge                (Python, run through uv in its checkout)
+pitf meta …         # meta                 (Python, run through uv in its checkout)
+pitf doctor         # what is missing, and where to get it
 ```
 
-Two ways a subcommand exists:
+Three ways a subcommand exists:
 
 - **Built in.** Go tools are imported and mounted. Each tool exposes a
   small public `cli` package with `Run(ctx, args) error`; pitf calls that
@@ -32,17 +32,24 @@ Two ways a subcommand exists:
   other exit status and message is the tool's. Ctrl-C keeps each tool's
   standalone meaning (agent-monitor cancels a context; tokenator's `serve`
   and the router daemons handle signals themselves).
+- **Python, through uv.** `pitf qual`, `pitf forge` and `pitf meta` stay
+  Python. pitf finds the tool's checkout under `[tools].smithy_dir`
+  (default `~/code/smithy`; `PITF_SMITHY_DIR` overrides), applies the
+  resolved profile environment, and `exec`s
+  `uv run -q --project <checkout> <console-script> …`. `uv run` syncs the
+  project's `.venv` on first use, so a fresh clone needs no install step.
+  A missing checkout or a missing `uv` exits 127 with the clone URL or the
+  install one-liner; `pitf doctor` reports the same for all three at once.
 - **External, git-style.** Any executable named `pitf-<name>` on `PATH`
   answers to `pitf <name>`. pitf `exec`s it with the remaining arguments,
   the environment, and the terminal, so its exit status is its own. Built-ins
-  always win over an external of the same name. `pitf help` lists whatever
-  externals it can see.
+  always win over an external of the same name (`pitf doctor` flags shims
+  that a built-in shadows). `pitf help` lists the externals that would run.
 
-The Python tools stay Python behind wrappers in `contrib/wrappers/` for as
-long as that is the right answer. Each shim runs the tool's console script
-inside its uv project (`uv run --project`), from any directory; set
-`PITF_SMITHY_DIR` if the checkouts are not under `~/code/smithy`.
-`just install-wrappers` puts them on `PATH`.
+The old `pitf-qual` / `pitf-forge` / `pitf-meta` shell shims and
+`pitf bench-py` are retired: the shims are now built in as above, and the
+legacy `llm-router-bench` comparison runs from the llm-router checkout with
+`uv run llm-router-bench` when it is still wanted.
 
 ## One operator, one config
 
@@ -303,10 +310,15 @@ pitf services uninstall         # remove the agents (logs and a replaced plist s
 ## Installing
 
 ```
-brew install erewhon/tap/pitf      # macOS and Linux; also installs the pitf-* shims
+brew install erewhon/tap/pitf      # macOS and Linux
 ```
 
-Or build from source (below). Either way, `pitf config init` first.
+Or build from source (below). Either way, `pitf config init` first, then
+`pitf doctor`: it checks the config, the router and its key, the tool UIs
+the jumps point at, `uv` and the Python checkouts, `tmux`, and stale
+`pitf-*` shims on `PATH`, with a fix-it hint per line. Exit 1 only on a
+FAIL (router unreachable, key rejected); missing optional pieces are
+warnings.
 
 What works from the binary alone, and what needs more:
 
@@ -315,7 +327,8 @@ What works from the binary alone, and what needs more:
 | `pitf config`, `pitf session`, `pitf model` | nothing (tools reachable by URL) |
 | `pitf bench sweep`, `pitf bench show` | a router URL and key in the config |
 | `pitf monitor`, `pitf tokens …`, `pitf router …` | nothing: compiled in (`monitor` needs tmux, `router` needs a models.yaml) |
-| `pitf qual`, `pitf forge`, `pitf meta`, `pitf bench-py` | the `pitf-*` shims on PATH, `uv`, and the Python checkouts under `~/code/smithy` or `PITF_SMITHY_DIR` |
+| `pitf qual`, `pitf forge`, `pitf meta` | `uv`, and the Python checkouts under `~/code/smithy` (`[tools].smithy_dir` / `PITF_SMITHY_DIR`) — `pitf doctor` says which are missing |
+| `pitf doctor` | nothing; it is how you find out what the rest needs |
 
 ## Building
 
@@ -341,8 +354,7 @@ darwin/linux archives and updates `Formula/pitf.rb` in `erewhon/homebrew-tap`
 
 ```
 cmd/pitf/          main: signal context, version stamp, exit codes
-internal/cli/      root command, external lookup and dispatch
+internal/cli/      root command, mounts (Go and Python-via-uv), external dispatch, doctor
 internal/dashboard/ pitf dashboard: the tabbed page and its frame targets
 internal/services/  pitf services / up: launchd agents for the laptop stack
-contrib/wrappers/  pitf-* shims for the Python tools
 ```

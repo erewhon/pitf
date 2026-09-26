@@ -40,6 +40,10 @@ type Tools struct {
 	MonitorURL   string `toml:"monitor_url"`
 	TokensURL    string `toml:"tokens_url"`
 	DashboardURL string `toml:"dashboard_url"`
+	// SmithyDir holds the sibling checkouts the Python tools run from
+	// (`pitf qual|forge|meta` → `uv run --project <SmithyDir>/<project>`).
+	// Default ~/code/smithy; PITF_SMITHY_DIR overrides.
+	SmithyDir string `toml:"smithy_dir"`
 }
 
 // Nous is the Forge notebook's daemon: where `pitf bench import` writes
@@ -192,7 +196,17 @@ const (
 	EnvPitfMonitorURL   = "PITF_MONITOR_URL"
 	EnvPitfTokensURL    = "PITF_TOKENS_URL"
 	EnvPitfDashboardURL = "PITF_DASHBOARD_URL"
+	EnvPitfSmithyDir    = "PITF_SMITHY_DIR"
 )
+
+// DefaultSmithyDir is ~/code/smithy: where the sibling checkouts live.
+func DefaultSmithyDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return filepath.Join("code", "smithy")
+	}
+	return filepath.Join(home, "code", "smithy")
+}
 
 // DefaultPath is $XDG_CONFIG_HOME/pitf/config.toml, falling back to
 // ~/.config/pitf/config.toml. PITF_CONFIG overrides the whole path.
@@ -323,6 +337,7 @@ func resolve(f File, path string, found bool, opts Options, getenv func(string) 
 		MonitorURL:   pick("PITF_MONITOR_URL", prof.Tools.MonitorURL, f.Tools.MonitorURL, DefaultMonitorURL),
 		TokensURL:    pick("PITF_TOKENS_URL", prof.Tools.TokensURL, f.Tools.TokensURL, DefaultTokensURL),
 		DashboardURL: pick("PITF_DASHBOARD_URL", prof.Tools.DashboardURL, f.Tools.DashboardURL, ""),
+		SmithyDir:    ExpandHome(pick(EnvPitfSmithyDir, prof.Tools.SmithyDir, f.Tools.SmithyDir, DefaultSmithyDir())),
 	}
 
 	// 5. Nous daemon (optional).
@@ -463,6 +478,7 @@ func (r *Resolved) Environment() ([]string, error) {
 		EnvPitfMonitorURL:   r.Tools.MonitorURL,
 		EnvPitfTokensURL:    r.Tools.TokensURL,
 		EnvPitfDashboardURL: r.Tools.DashboardURL,
+		EnvPitfSmithyDir:    r.Tools.SmithyDir,
 	}
 	for k, v := range tools {
 		if v == "" || (!r.ProfileExplicit && r.getenv(k) != "") {
@@ -538,6 +554,9 @@ api_key_cmd = "ho secret get llm-router/api-key"
 # monitor_url = "http://127.0.0.1:8070"
 # tokens_url = "http://127.0.0.1:8990"
 # dashboard_url = "https://llm.example/dashboard"
+# Where the Python tools' checkouts live (pitf qual / forge / meta run
+# "uv run --project" there). PITF_SMITHY_DIR overrides.
+# smithy_dir = "~/code/smithy"
 
 # Extra environment every subcommand should see (profile tables override).
 [env]

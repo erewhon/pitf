@@ -107,18 +107,41 @@ func NewRoot(version string, gf *globalFlags) *cobra.Command {
 	root.SetVersionTemplate("pitf {{.Version}}\n")
 
 	addGlobalFlags(root.PersistentFlags(), gf)
-	root.AddCommand(newCompletionCmd(root), newConfigCmd(gf), newBenchCmd(gf), newSessionCmd(gf), newModelCmd(gf), newDashboardCmd(gf), newServicesCmd(gf), newUpCmd(version, gf))
+	root.AddCommand(newCompletionCmd(root), newConfigCmd(gf), newDoctorCmd(version, gf), newBenchCmd(gf), newSessionCmd(gf), newModelCmd(gf), newDashboardCmd(gf), newServicesCmd(gf), newUpCmd(version, gf))
 	root.AddCommand(mountCommands()...)
 
-	// Append discovered externals to `pitf help` / `pitf --help`.
+	// Append discovered externals to `pitf help` / `pitf --help`. Ones a
+	// built-in shadows are left out here; `pitf doctor` names them.
 	defaultHelp := root.HelpFunc()
 	root.SetHelpFunc(func(cmd *cobra.Command, args []string) {
 		defaultHelp(cmd, args)
 		if cmd == root {
-			writeExternalSection(cmd.OutOrStdout(), os.Getenv("PATH"))
+			writeExternalSection(cmd.OutOrStdout(), visibleExternals(root, os.Getenv("PATH")))
 		}
 	})
 	return root
+}
+
+// isBuiltin reports whether name is a built-in command (cobra or mount),
+// i.e. an external of that name can never run.
+func isBuiltin(root *cobra.Command, name string) bool {
+	for _, c := range root.Commands() {
+		if c.Name() == name || c.HasAlias(name) {
+			return true
+		}
+	}
+	return name == "help"
+}
+
+// visibleExternals is listExternals minus the names a built-in shadows.
+func visibleExternals(root *cobra.Command, pathEnv string) []string {
+	var out []string
+	for _, n := range listExternals(pathEnv) {
+		if !isBuiltin(root, n) {
+			out = append(out, n)
+		}
+	}
+	return out
 }
 
 // externalCandidate reports whether args name something that is not a
@@ -150,7 +173,7 @@ func unknownCommand(root *cobra.Command, name string) error {
 			fmt.Fprintf(&b, "  %s\n", c.Name())
 		}
 	}
-	names := listExternals(os.Getenv("PATH"))
+	names := visibleExternals(root, os.Getenv("PATH"))
 	if len(names) > 0 {
 		fmt.Fprintf(&b, "\nExternal commands (pitf-<name> on PATH):\n")
 		for _, n := range names {
@@ -162,8 +185,7 @@ func unknownCommand(root *cobra.Command, name string) error {
 	return fmt.Errorf("%s", strings.TrimRight(b.String(), "\n"))
 }
 
-func writeExternalSection(w io.Writer, path string) {
-	names := listExternals(path)
+func writeExternalSection(w io.Writer, names []string) {
 	if len(names) == 0 {
 		return
 	}

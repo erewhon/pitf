@@ -32,7 +32,6 @@ archives:
     files:
       - LICENSE
       - README.md
-      - contrib/wrappers/*
 
 checksum:
   name_template: checksums.txt
@@ -59,12 +58,9 @@ brews:
       email: noreply@byrnes.org
     install: |
       bin.install "pitf"
-      # The Python-tool shims: pitf qual / forge / meta / bench-py. They need
-      # uv and the checkouts under ~/code/smithy (or PITF_SMITHY_DIR).
-      bin.install Dir["contrib/wrappers/pitf-*"]
       generate_completions_from_executable(bin/"pitf", "completion")
     caveats: |
-      Built in: pitf monitor | tokens | router … | bench sweep | session | model | config
-      External (need uv + the Python checkouts on PITF_SMITHY_DIR): pitf qual | forge | meta | bench-py
+      Built in: pitf monitor | tokens | router … | bench sweep | session | model | dashboard | config
+      Python tools (need uv + the checkouts under ~/code/smithy or PITF_SMITHY_DIR): pitf qual | forge | meta
 
-      First run: pitf config init
+      First run: pitf config init, then pitf doctor

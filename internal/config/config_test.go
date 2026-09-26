@@ -187,6 +187,7 @@ func TestEnvironmentMergesTablesAndRespectsAmbient(t *testing.T) {
 		"AGENT_MONITOR_TOKENS_URL=http://work-box:8990", "NOUS_API_KEY=nous-key", "NOUS_DAEMON_URL=https://nous.example", "OVERRIDDEN=from-work",
 		"PITF_DASHBOARD_URL=https://home.example/dashboard", "PITF_MONITOR_URL=" + DefaultMonitorURL,
 		"PITF_PROFILE=work", "PITF_ROUTER_API_KEY=work-literal", "PITF_ROUTER_URL=https://work.example",
+		"PITF_SMITHY_DIR=" + DefaultSmithyDir(),
 		"PITF_TOKENS_URL=http://work-box:8990", "ROUTER_API_KEY=work-literal", "SHARED=from-defaults",
 		"TOKENATOR_MONITOR_URL=" + DefaultMonitorURL,
 	}

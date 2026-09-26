@@ -99,10 +99,14 @@ func TestUnknownCommandListsExternals(t *testing.T) {
 func TestHelpAndVersion(t *testing.T) {
 	bin := buildPitf(t)
 	dir := t.TempDir()
-	writeExec(t, dir, "pitf-qual", "#!/bin/sh\n")
+	writeExec(t, dir, "pitf-hello", "#!/bin/sh\n")
+	writeExec(t, dir, "pitf-qual", "#!/bin/sh\n") // shadowed by the built-in: not listed
 	out, code := run(t, bin, dir, "help")
-	if code != 0 || !strings.Contains(out, "External Commands") || !strings.Contains(out, "  qual") {
+	if code != 0 || !strings.Contains(out, "External Commands") || !strings.Contains(out, "  hello") {
 		t.Fatalf("help should list externals (code %d): %q", code, out)
+	}
+	if strings.Contains(out, "  qual\n") {
+		t.Fatalf("help must not list an external a built-in shadows: %q", out)
 	}
 	out, code = run(t, bin, dir, "--version")
 	if code != 0 || !strings.HasPrefix(out, "pitf ") {

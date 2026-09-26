@@ -16,9 +16,10 @@ func TestFindMount(t *testing.T) {
 		{[]string{"monitor", "--list"}, "monitor", 1},
 		{[]string{"tokens"}, "tokens", 0},
 		{[]string{"router", "serve", "--help"}, "serve", 1},
-		{[]string{"router"}, "", 0},         // group with no sub → cobra help
-		{[]string{"router", "nope"}, "", 0}, // unknown sub → cobra error
-		{[]string{"bench"}, "", 0},          // external, not a mount
+		{[]string{"router"}, "", 0},             // group with no sub → cobra help
+		{[]string{"router", "nope"}, "", 0},     // unknown sub → cobra error
+		{[]string{"bench"}, "", 0},              // cobra built-in, not a mount
+		{[]string{"qual", "--help"}, "qual", 1}, // Python tool mount
 		{nil, "", 0},
 	}
 	for _, c := range cases {

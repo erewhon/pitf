@@ -21,8 +21,9 @@ func newBenchCmd(gf *globalFlags) *cobra.Command {
 		Long: "Measures prompt-processing and token-generation speed of models behind the\n" +
 			"configured router using the streaming chat API. Numbers are a streaming probe\n" +
 			"(pp = prompt_tokens/TTFT, tg = completion_tokens over the generation window),\n" +
-			"NOT llama-bench; rows say so in Flags. The legacy multi-target comparison tool\n" +
-			"(llm-router-bench) is still reachable as `pitf bench-py`.",
+			"NOT llama-bench; rows say so in Flags. The legacy Python comparison tool\n" +
+			"(llm-router-bench) is retired from pitf; run it from the llm-router checkout\n" +
+			"with `uv run llm-router-bench` if you still need it.",
 	}
 	cmd.AddCommand(newBenchSweepCmd(gf), newBenchShowCmd(), newBenchImportCmd(gf))
 	return cmd

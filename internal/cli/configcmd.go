@@ -147,6 +147,7 @@ func writeShow(cmd *cobra.Command, r *config.Resolved) error {
 		fmt.Fprintf(w, "nous:        (unset; needed only by `pitf bench import`)\n")
 	}
 	fmt.Fprintf(w, "tools:       monitor %s · tokens %s · dashboard %s\n", orUnset(r.Tools.MonitorURL), orUnset(r.Tools.TokensURL), orUnset(r.Tools.DashboardURL))
+	fmt.Fprintf(w, "smithy_dir:  %s (python tools: %s)\n", r.Tools.SmithyDir, strings.Join(pyToolNames(), ", "))
 	if sv := r.Services; sv.ModelsYAML != "" || sv.RouterAddr != "" || sv.DashboardAddr != "" || sv.IngestEvery != "" ||
 		sv.RouterArgs != nil || sv.RouterEnvFiles != nil || sv.IngestArgs != nil {
 		fmt.Fprintf(w, "services:\n")
