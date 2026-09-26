@@ -89,6 +89,7 @@ func sessionJumps(l keys.Links, id keys.SessionID, agents []monitorAgent, monito
 	}
 	if u := l.RouterSessionRequests(id); u != "" {
 		out = append(out, jump{Tool: "router", What: "requests", URL: u})
+		out = append(out, jump{Tool: "router", What: "tokens tab", URL: l.RouterTokensSession(id)})
 	} else {
 		out = append(out, jump{Tool: "router", Note: "dashboard_url not configured (set [tools].dashboard_url)"})
 	}
@@ -101,6 +102,7 @@ func modelJumps(l keys.Links, alias keys.ModelAlias, models []bench.Model, route
 	var out []jump
 	if u := l.RouterCatalogModel(alias); u != "" {
 		out = append(out, jump{Tool: "router", What: "catalog", URL: u})
+		out = append(out, jump{Tool: "router", What: "tokens tab", URL: l.RouterTokensModel(alias)})
 	} else {
 		out = append(out, jump{Tool: "router", Note: "dashboard_url not configured (set [tools].dashboard_url)"})
 	}

@@ -97,6 +97,25 @@ func (l Links) RouterSessionRequests(id SessionID) string {
 	return base(l.DashboardURL) + "/v2#requests?session=" + url.QueryEscape(string(id))
 }
 
+// RouterTokensSession is the dashboard's Tokens tab (tokenator framed
+// through the router's /tokens/ proxy) opened on one session — the one
+// entry point when the dashboard is the home shell.
+func (l Links) RouterTokensSession(id SessionID) string {
+	if l.DashboardURL == "" || id == "" {
+		return ""
+	}
+	return base(l.DashboardURL) + "/v2#tokens?session=" + url.QueryEscape(string(id))
+}
+
+// RouterTokensModel is the Tokens tab opened on tokenator's page for one
+// model alias.
+func (l Links) RouterTokensModel(alias ModelAlias) string {
+	if l.DashboardURL == "" || alias == "" {
+		return ""
+	}
+	return base(l.DashboardURL) + "/v2#tokens?model=" + url.QueryEscape(string(alias))
+}
+
 // HasPrefix reports whether candidate is the session (or starts with the
 // typed prefix), case-insensitively. Both tools accept prefixes.
 func (id SessionID) HasPrefix(candidate string) bool {

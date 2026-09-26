@@ -5,7 +5,8 @@ import "testing"
 func TestBuildersOmitUnconfiguredTargets(t *testing.T) {
 	var none Links
 	if none.MonitorBoard() != "" || none.TokensSession("abc") != "" || none.RouterCatalogModel("x") != "" ||
-		none.TokensModel("x") != "" || none.RouterSessionRequests("abc") != "" {
+		none.TokensModel("x") != "" || none.RouterSessionRequests("abc") != "" ||
+		none.RouterTokensSession("abc") != "" || none.RouterTokensModel("x") != "" {
 		t.Fatal("unconfigured links must build empty URLs")
 	}
 	l := Links{MonitorURL: "http://127.0.0.1:8070/", TokensURL: "http://127.0.0.1:8990", DashboardURL: "https://llm.bcc.sh/dashboard/"}
@@ -21,6 +22,8 @@ func TestBuildersOmitUnconfiguredTargets(t *testing.T) {
 		l.TokensModel("or/minimax-m3"):       "http://127.0.0.1:8990/model/or%2Fminimax-m3",
 		l.RouterSessionRequests("0d3e4b2a"):  "https://llm.bcc.sh/dashboard/v2#requests?session=0d3e4b2a",
 		l.RouterSessionRequests("ses_a/b c"): "https://llm.bcc.sh/dashboard/v2#requests?session=ses_a%2Fb+c",
+		l.RouterTokensSession("0d3e4b2a"):    "https://llm.bcc.sh/dashboard/v2#tokens?session=0d3e4b2a",
+		l.RouterTokensModel("or/kimi k2.7"):  "https://llm.bcc.sh/dashboard/v2#tokens?model=or%2Fkimi+k2.7",
 	}
 	for got, want := range cases {
 		if got != want {

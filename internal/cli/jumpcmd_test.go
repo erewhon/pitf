@@ -23,7 +23,7 @@ func TestSessionJumps(t *testing.T) {
 	var buf bytes.Buffer
 	writeJumps(&buf, sessionJumps(l, "0d3e", agents, nil))
 	out := buf.String()
-	for _, want := range []string{"http://t:8990/session/0d3e", "http://t:8990/session/0d3e/transcript", "cc llm-router (tmux llm-router:0.0, running)", "http://m:8070/", "https://d/dashboard/v2#requests?session=0d3e"} {
+	for _, want := range []string{"http://t:8990/session/0d3e", "http://t:8990/session/0d3e/transcript", "cc llm-router (tmux llm-router:0.0, running)", "http://m:8070/", "https://d/dashboard/v2#requests?session=0d3e", "https://d/dashboard/v2#tokens?session=0d3e"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in:\n%s", want, out)
 		}
@@ -52,7 +52,7 @@ func TestModelJumps(t *testing.T) {
 	var buf bytes.Buffer
 	writeJumps(&buf, modelJumps(l, "glm-fast", models, nil))
 	if !strings.Contains(buf.String(), "https://d/dashboard/v2#catalog?model=glm-fast") || !strings.Contains(buf.String(), "model served by vllm") ||
-		!strings.Contains(buf.String(), "http://t:8990/model/glm-fast") {
+		!strings.Contains(buf.String(), "http://t:8990/model/glm-fast") || !strings.Contains(buf.String(), "https://d/dashboard/v2#tokens?model=glm-fast") {
 		t.Fatalf("model: %s", buf.String())
 	}
 	buf.Reset()
