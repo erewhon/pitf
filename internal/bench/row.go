@@ -64,17 +64,41 @@ func f64(v float64) *float64 {
 	return &x
 }
 
-// NewRow shapes legs into a matrix row and applies registry enrichment.
-func NewRow(alias string, legs []Leg, opts Options, c *Client) Row {
-	host := opts.Host
-	if host == "" {
-		if u, err := url.Parse(c.BaseURL); err == nil {
-			host = u.Hostname()
-		}
+// hostFor is the Host column: --host, else the router URL's hostname.
+func hostFor(opts Options, c *Client) string {
+	if opts.Host != "" {
+		return opts.Host
 	}
+	if u, err := url.Parse(c.BaseURL); err == nil {
+		return u.Hostname()
+	}
+	return ""
+}
+
+// PlanRow is the row a sweep would produce for alias before any leg has
+// run: identity, date, notes and registry enrichment, no measurements. It
+// is what a dry run can honestly show; the pp/tg cells, Flags and a failed
+// model's verdict only exist after the sweep.
+func PlanRow(alias string, opts Options, c *Client) Row {
+	opts.defaults()
 	r := Row{
 		Model:    alias,
-		Host:     host,
+		Host:     hostFor(opts, c),
+		TestDate: opts.Date.Format("2006-01-02"),
+		Verdict:  "informational",
+		Notes:    opts.Notes,
+	}
+	if opts.Registry != nil {
+		opts.Registry.Enrich(&r)
+	}
+	return r
+}
+
+// NewRow shapes legs into a matrix row and applies registry enrichment.
+func NewRow(alias string, legs []Leg, opts Options, c *Client) Row {
+	r := Row{
+		Model:    alias,
+		Host:     hostFor(opts, c),
 		TestDate: opts.Date.Format("2006-01-02"),
 		Verdict:  "informational",
 		Notes:    opts.Notes,

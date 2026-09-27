@@ -116,6 +116,7 @@ sample), so a file saved at work replays into the matrix from home.
 
 ```
 pitf bench sweep --model qwen38-27b --model glm-fast
+pitf bench sweep --model glm-fast --forge           # sweep, then post the rows (home)
 pitf --profile work bench sweep --all --match 'qwen*' --json rows.jsonl
 pitf bench sweep --model ling3 --registry ~/code/smithy/llm-router/models.yaml
 pitf bench show rows.jsonl
@@ -147,6 +148,23 @@ the Nous daemon named in `[nous]` (`url` plus `api_key` or `api_key_cmd`;
 object, skips rows that failed every leg unless `--include-failed`, and
 `--dry-run` prints what would be posted. Forge is usually only reachable
 from home, so the workflow is: sweep at work with `--json`, import at home.
+
+Where the sweep itself runs at home, `pitf bench sweep --forge` does both in
+one step, through the same code as `bench import` (`--notebook` and
+`--database` name the destination the same way):
+
+- The destination is resolved **before** the sweep starts. A missing `[nous]`
+  config, a bad key or a wrong database name stops the command in a second,
+  with nothing run.
+- Rows are posted **once, after** the sweep completes. A sweep that ends in
+  an error (a `--timeout`, an interrupt) posts nothing, even for the models
+  that finished. A model that failed every leg is skipped; the others are
+  posted, and the command still exits 1 for the failure.
+- If the post fails, the measurements are kept: in the `--json` file when one
+  was given, otherwise in `pitf-bench-<timestamp>.jsonl` in the current
+  directory. The error names the file and the `pitf bench import` to retry.
+- `--forge --dry-run` prints the destination and each row as far as it is
+  known before measuring, contacts nothing and sends nothing.
 
 This is a streaming probe, not llama-bench; the Flags column says so, and
 the matrix's llama-bench rows are not directly comparable. `--registry`

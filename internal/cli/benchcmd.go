@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,8 +30,14 @@ func newBenchCmd(gf *globalFlags) *cobra.Command {
 	return cmd
 }
 
+// benchSweep is bench.Sweep, as a variable so the command's tests can stand
+// in canned rows for a real sweep.
+var benchSweep = bench.Sweep
+
 func newBenchSweepCmd(gf *globalFlags) *cobra.Command {
 	var (
+		forge    bool
+		target   forgeTarget
 		models   []string
 		all      bool
 		match    string
@@ -49,7 +56,16 @@ func newBenchSweepCmd(gf *globalFlags) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "sweep",
 		Short: "Run pp512/pp2048/tg128 legs for one or more model aliases",
+		Long: "Runs the legs for each model and prints one Model Performance Matrix row per\n" +
+			"model. With --forge the rows are also appended to the Matrix (the same path as\n" +
+			"`pitf bench import`): the destination is resolved BEFORE the sweep starts, so a\n" +
+			"missing [nous] config or a wrong name fails in a second rather than after the\n" +
+			"run, and the rows are posted once, AFTER the sweep completes. A sweep that ends\n" +
+			"in an error posts nothing; a model that failed every leg is skipped and the\n" +
+			"others are posted. If the post itself fails the rows are kept in a JSONL file\n" +
+			"for `pitf bench import`.",
 		Example: "  pitf bench sweep --model glm-fast --model qwen38\n" +
+			"  pitf bench sweep --model glm-fast --forge\n" +
 			"  pitf --profile work bench sweep --all --match 'qwen*' --json rows.jsonl\n" +
 			"  pitf bench sweep --model ling3 --registry ~/code/smithy/llm-router/models.yaml --dry-run",
 		Args: cobra.NoArgs,
@@ -119,10 +135,22 @@ func newBenchSweepCmd(gf *globalFlags) *cobra.Command {
 					fmt.Fprintf(cmd.OutOrStdout(), " + JSONL to %s", jsonOut)
 				}
 				fmt.Fprintln(cmd.OutOrStdout())
+				if forge {
+					return printSweepForgePlan(cmd.OutOrStdout(), r, target, models, opts, c)
+				}
 				return nil
 			}
 
-			rows, err := bench.Sweep(ctx, c, opts)
+			// The destination first: two GETs now beat a finished sweep
+			// with nowhere to go.
+			var sink *forgeSink
+			if forge {
+				if sink, err = openForgeSink(ctx, r, target); err != nil {
+					return fmt.Errorf("--forge: %w (nothing was run)", err)
+				}
+			}
+
+			rows, err := benchSweep(ctx, c, opts)
 			if len(rows) > 0 {
 				bench.WriteTable(cmd.OutOrStdout(), rows)
 				if jsonOut != "" {
@@ -133,7 +161,15 @@ func newBenchSweepCmd(gf *globalFlags) *cobra.Command {
 				}
 			}
 			if err != nil {
+				if forge {
+					fmt.Fprintln(cmd.ErrOrStderr(), "forge: the sweep did not complete; nothing posted")
+				}
 				return err
+			}
+			if forge {
+				if err := postSweep(ctx, cmd.ErrOrStderr(), sink, rows, jsonOut); err != nil {
+					return err
+				}
 			}
 			for _, row := range rows {
 				if row.Measure.Failed {
@@ -155,10 +191,65 @@ func newBenchSweepCmd(gf *globalFlags) *cobra.Command {
 	f.StringVar(&notes, "notes", "", "text for the Notes column")
 	f.StringVar(&jsonOut, "json", "", "also write rows as JSON lines to this file (- for stdout instead of the table)")
 	f.StringVar(&registry, "registry", "", "models.yaml to fill HF Repo / Quant / Host / Engine / Context from")
-	f.BoolVar(&dryRun, "dry-run", false, "print the plan and run nothing")
+	f.BoolVar(&dryRun, "dry-run", false, "print the plan and run nothing (with --forge: also what would be posted, and send nothing)")
+	f.BoolVar(&forge, "forge", false, "append the finished rows to the Forge Model Performance Matrix, once, after the sweep completes")
+	f.StringVar(&target.Notebook, "notebook", defaultForgeNotebook, "with --forge: Nous notebook name")
+	f.StringVar(&target.Database, "database", defaultForgeDatabase, "with --forge: database title in that notebook")
 	f.DurationVar(&timeout, "timeout", 0, "overall deadline for the sweep (0 = none)")
 	f.BoolVarP(&quiet, "quiet", "q", false, "no per-run progress on stderr")
 	return cmd
+}
+
+// printSweepForgePlan is --dry-run --forge: where the rows would go and what
+// is already known of each. Nothing is sent, the daemon is not contacted.
+func printSweepForgePlan(w io.Writer, r *config.Resolved, t forgeTarget, models []string, opts bench.Options, c *bench.Client) error {
+	via := r.NousURL
+	if !r.HasNous() {
+		via = "NOT CONFIGURED — set [nous].url in " + r.Path + " or NOUS_DAEMON_URL; a real run would stop before the sweep"
+	}
+	fmt.Fprintf(w, "forge:   %s\n", via)
+	rows := make([]bench.Row, 0, len(models))
+	for _, m := range models {
+		rows = append(rows, bench.PlanRow(m, opts, c))
+	}
+	_, payloads, _, err := forgePayloads(rows, true)
+	if err != nil {
+		return err
+	}
+	if err := printForgePlan(w, payloads, t); err != nil {
+		return err
+	}
+	fmt.Fprintln(w, "the sweep adds the measured cells (pp/tg, Flags) to each row; a model that fails every leg is skipped")
+	return nil
+}
+
+// postSweep sends a completed sweep's rows through the sink. When the post
+// fails the measurements are not lost: they are in the --json file if one
+// was given, else in a file written here, ready for `pitf bench import`.
+func postSweep(ctx context.Context, w io.Writer, sink *forgeSink, rows []bench.Row, jsonOut string) error {
+	keep, payloads, skipped, err := forgePayloads(rows, false)
+	if err != nil {
+		return err
+	}
+	for _, s := range skipped {
+		fmt.Fprintf(w, "forge: skip %s\n", s)
+	}
+	if len(payloads) == 0 {
+		fmt.Fprintln(w, "forge: no row to post")
+		return nil
+	}
+	err = sink.post(ctx, w, keep, payloads)
+	if err == nil {
+		return nil
+	}
+	saved := jsonOut
+	if saved == "" || saved == "-" {
+		saved = "pitf-bench-" + time.Now().Format("20060102-150405") + ".jsonl"
+		if werr := writeJSONL(saved, rows); werr != nil {
+			return fmt.Errorf("forge: post failed: %w; saving the rows failed too: %v", err, werr)
+		}
+	}
+	return fmt.Errorf("forge: post failed: %w; the rows are in %s — retry with `pitf bench import %s`", err, saved, saved)
 }
 
 func writeJSONL(path string, rows []bench.Row) error {
