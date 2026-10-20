@@ -1,5 +1,5 @@
 # GoReleaser — builds `pitf` and publishes a Homebrew formula to
-# github.com/erewhon/homebrew-tap on every `vX.Y.Z` tag.
+# smithy/homebrew-tap on code.middlefork.org on every `vX.Y.Z` tag.
 # A formula (not a cask) so Homebrew on Linux can install it too.
 version: 2
 
@@ -37,25 +37,40 @@ checksum:
   name_template: checksums.txt
 
 release:
-  github:
-    owner: erewhon
-    name: pitf
+  # GitHub releases retired 2026-10-20: binaries are release assets on
+  # code.middlefork.org, and the tap is smithy/homebrew-tap there.
+  # Cut a release from a workstation (sprinkle-runner has no secrets):
+  #   git tag -a vX.Y.Z -m ... && git push code-public vX.Y.Z
+  #   MIDDLEFORK_TOKEN=$(ho secret get code-public/release-token) \
+  #   TAP_SSH_KEY=~/.ssh/id_ed25519 goreleaser release --clean
+  disable: true
+
+publishers:
+  - name: middlefork
+    checksum: true
+    cmd: >-
+      curl -fsS -T "{{ .ArtifactPath }}"
+      -H "Authorization: token {{ .Env.MIDDLEFORK_TOKEN }}"
+      "https://code.middlefork.org/api/v1/repos/smithy/pitf/releases/{{ .Tag }}/assets/{{ .ArtifactName }}"
 
 brews:
   - name: pitf
     ids: [pitf]
     repository:
-      owner: erewhon
+      owner: smithy
       name: homebrew-tap
       branch: main
-      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+      git:
+        url: "ssh://code.bcc.sh:23232/smithy/homebrew-tap.git"
+        private_key: "{{ .Env.TAP_SSH_KEY }}"
+    url_template: "https://code.middlefork.org/api/v1/repos/smithy/pitf/releases/{{ .Tag }}/assets/{{ .ArtifactName }}"
     directory: Formula
-    homepage: "https://github.com/erewhon/pitf"
+    homepage: "https://code.middlefork.org/smithy/pitf"
     description: "One command over the smithy LLM tools: agent-monitor, tokenator, llm-router, benchmarks"
     license: "AGPL-3.0-or-later"
     commit_author:
       name: goreleaser-bot
-      email: noreply@byrnes.org
+      email: erewhon@flatland.org
     install: |
       bin.install "pitf"
       generate_completions_from_executable(bin/"pitf", "completion")

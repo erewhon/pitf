@@ -308,7 +308,8 @@ pitf services uninstall         # remove the agents (logs and a replaced plist s
 ## Installing
 
 ```
-brew install erewhon/tap/pitf      # macOS and Linux
+brew tap smithy/tap https://code.middlefork.org/smithy/homebrew-tap
+brew install smithy/tap/pitf      # macOS and Linux
 ```
 
 Or build from source (below). Either way, `pitf config init` first, then
@@ -344,9 +345,13 @@ workspace (`GOWORK=off go build ./...` reproduces that locally). After
 landing a change in one of the tools, push it and bump the pin:
 `GOWORK=off go get github.com/erewhon/<tool>@<commit> && GOWORK=off go mod tidy`. Always tidy with `GOWORK=off`; inside the workspace it would try to resolve the siblings differently.
 
-Releases: tag `vX.Y.Z` on GitHub and the release workflow builds
-darwin/linux archives and updates `Formula/pitf.rb` in `erewhon/homebrew-tap`
-(needs the `HOMEBREW_TAP_GITHUB_TOKEN` repo secret).
+Releases are cut locally and published to code.middlefork.org: tag `vX.Y.Z`,
+push the tag to `code-public`, then run
+`MIDDLEFORK_TOKEN=$(ho secret get code-public/release-token) TAP_SSH_KEY=~/.ssh/id_ed25519 goreleaser release --clean`.
+That uploads the darwin/linux archives as release assets and updates
+`Formula/pitf.rb` in `smithy/homebrew-tap`. Until 2026-10-20 a GitHub workflow
+did this into `erewhon/homebrew-tap`; it was removed with the move off GitHub
+releases (sprinkle-runner has no secrets, so CI can't publish).
 
 ## Pi
 
